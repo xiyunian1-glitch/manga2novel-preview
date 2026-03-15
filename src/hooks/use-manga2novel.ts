@@ -1,0 +1,797 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type {
+  APIConfig,
+  CreativePreset,
+  CreativeSettings,
+  ImageItem,
+  OrchestratorConfig,
+  RequestStage,
+  StageAPIOverrideConfig,
+  StageAPIOverrideMap,
+  TaskState,
+} from '@/lib/types';
+import {
+  DEFAULT_COMPATIBLE_BASE_URL,
+  DEFAULT_CREATIVE_SETTINGS,
+  DEFAULT_ORCHESTRATOR_CONFIG,
+  DEFAULT_MEMORY_STATE,
+  DEFAULT_STAGE_API_OVERRIDES,
+  DEFAULT_STAGE_MODELS,
+  DEFAULT_STORY_SYNTHESIS,
+  LEGACY_OPENROUTER_BASE_URL,
+  PROVIDER_DISPLAY_NAMES,
+  REQUEST_STAGES,
+  resolveProviderDisplayLabel,
+  resolveStageAPIConfig,
+  resolveStageModel,
+} from '@/lib/types';
+import { TaskOrchestrator } from '@/lib/task-orchestrator';
+import { secureGet, secureRemove, secureSet, getJSON, setJSON } from '@/lib/crypto-store';
+import { fetchModels as fetchProviderModels } from '@/lib/api-adapter';
+import { createPreviewUrl, revokePreviewUrl } from '@/lib/image-pipeline';
+import {
+  clearWorkspaceSnapshot,
+  loadWorkspaceSnapshot,
+  saveWorkspaceImageFiles,
+  saveWorkspaceImageMeta,
+  saveWorkspaceTaskState,
+  serializeImages,
+  serializeTaskState,
+  type PersistedTaskState,
+  type RestorableImageItem,
+} from '@/lib/workspace-store';
+import {
+  CREATIVE_PRESETS,
+  CUSTOM_PRESET_ID,
+  composeSystemPrompt,
+  resolveCreativePresetId,
+  splitSystemPrompt,
+  SYSTEM_PROMPT,
+  SYSTEM_PROMPT_BODY,
+  USER_PROMPT_TEMPLATE,
+} from '@/lib/prompts';
+
+let idCounter = 0;
+const CREATIVE_SETTINGS_TEMPLATE_VERSION = 6;
+
+function resolvePresetIdFromPresets(systemPrompt: string, presets: CreativePreset[]): string {
+  const builtinPresetId = resolveCreativePresetId(systemPrompt);
+  if (builtinPresetId !== CUSTOM_PRESET_ID) {
+    return builtinPresetId;
+  }
+
+  const { roleAndStyle } = splitSystemPrompt(systemPrompt);
+  const matchedPreset = presets.find(
+    (preset) => preset.id !== CUSTOM_PRESET_ID && splitSystemPrompt(preset.prompt).roleAndStyle === roleAndStyle
+  );
+
+  return matchedPreset?.id || CUSTOM_PRESET_ID;
+}
+
+function canResolveModels(config: APIConfig): boolean {
+  return REQUEST_STAGES.every((stage) => Boolean(resolveStageModel(config, stage)));
+}
+
+function normalizeProviderLabel(config: Pick<APIConfig, 'provider' | 'providerLabel'>): string {
+  return resolveProviderDisplayLabel(config.provider, config.providerLabel);
+}
+
+function normalizeProvider(provider: APIConfig['provider'] | 'openrouter' | null | undefined): APIConfig['provider'] {
+  if (provider === 'gemini') {
+    return 'gemini';
+  }
+
+  return 'compatible';
+}
+
+function normalizeBaseUrl(
+  provider: APIConfig['provider'],
+  baseUrl: string | null | undefined,
+  legacyProvider?: APIConfig['provider'] | 'openrouter' | null
+): string {
+  const normalizedBaseUrl = baseUrl?.trim() || '';
+  if (normalizedBaseUrl) {
+    return normalizedBaseUrl;
+  }
+
+  if (provider === 'compatible' && legacyProvider === 'openrouter') {
+    return LEGACY_OPENROUTER_BASE_URL;
+  }
+
+  return '';
+}
+
+function normalizeStageAPIOverride(
+  stage: RequestStage,
+  override: Partial<StageAPIOverrideConfig> | null | undefined,
+  stageApiKeys?: Partial<Record<RequestStage, string>>
+): StageAPIOverrideConfig {
+  const provider = normalizeProvider(override?.provider);
+
+  return {
+    enabled: Boolean(override?.enabled),
+    provider,
+    providerLabel: normalizeProviderLabel({
+      provider,
+      providerLabel: override?.providerLabel || '',
+    }),
+    apiKey: stageApiKeys?.[stage]?.trim() || override?.apiKey?.trim() || '',
+    model: override?.model?.trim() || '',
+    baseUrl: normalizeBaseUrl(provider, override?.baseUrl),
+  };
+}
+
+function normalizeStageAPIOverrides(
+  overrides: Partial<StageAPIOverrideMap> | null | undefined,
+  stageApiKeys?: Partial<Record<RequestStage, string>>
+): StageAPIOverrideMap {
+  return REQUEST_STAGES.reduce((result, stage) => {
+    result[stage] = normalizeStageAPIOverride(stage, overrides?.[stage], stageApiKeys);
+    return result;
+  }, { ...DEFAULT_STAGE_API_OVERRIDES });
+}
+
+function serializeStageAPIOverrides(overrides: StageAPIOverrideMap): Record<RequestStage, Omit<StageAPIOverrideConfig, 'apiKey'>> {
+  return REQUEST_STAGES.reduce((result, stage) => {
+    const override = overrides[stage];
+    result[stage] = {
+      enabled: override.enabled,
+      provider: override.provider,
+      providerLabel: normalizeProviderLabel({
+        provider: override.provider,
+        providerLabel: override.providerLabel || '',
+      }),
+      model: override.model.trim(),
+      baseUrl: override.baseUrl?.trim() || '',
+    };
+    return result;
+  }, {} as Record<RequestStage, Omit<StageAPIOverrideConfig, 'apiKey'>>);
+}
+
+function extractStageApiKeys(overrides: StageAPIOverrideMap): Partial<Record<RequestStage, string>> {
+  return REQUEST_STAGES.reduce((result, stage) => {
+    const apiKey = overrides[stage].apiKey.trim();
+    if (apiKey) {
+      result[stage] = apiKey;
+    }
+    return result;
+  }, {} as Partial<Record<RequestStage, string>>);
+}
+
+function canResolveStageAccess(config: APIConfig): boolean {
+  return REQUEST_STAGES.every((stage) => {
+    const stageConfig = resolveStageAPIConfig(config, stage);
+    return Boolean(stageConfig.apiKey.trim() && stageConfig.model.trim());
+  });
+}
+
+function hasRestorableTaskState(taskState: TaskState): boolean {
+  return taskState.status !== 'idle'
+    || taskState.currentStage !== 'idle'
+    || taskState.pageAnalyses.length > 0
+    || taskState.chunkSyntheses.length > 0
+    || taskState.novelSections.length > 0
+    || Boolean(taskState.fullNovel)
+    || Boolean(taskState.lastAIRequest);
+}
+
+function restoreImagesFromSnapshot(images: RestorableImageItem[]): ImageItem[] {
+  return images.map((image) => ({
+    id: image.id,
+    file: image.file,
+    previewUrl: createPreviewUrl(image.file),
+    processedBase64: image.processedBase64,
+    processedMime: image.processedMime,
+    status: image.status,
+    originalSize: image.originalSize,
+    compressedSize: image.compressedSize,
+  }));
+}
+
+function restoreTaskStateFromSnapshot(snapshot: PersistedTaskState, images: ImageItem[]): TaskState {
+  const imageById = new Map(images.map((image) => [image.id, image]));
+
+  return {
+    ...snapshot,
+    chunks: snapshot.chunks.map((chunk) => ({
+      ...chunk,
+      images: chunk.imageIds
+        .map((imageId) => imageById.get(imageId))
+        .filter((image): image is ImageItem => Boolean(image)),
+    })),
+  };
+}
+
+type RecoveryNoticeType = 'interrupted-task' | 'workspace-restored';
+
+interface RecoveryNotice {
+  type: RecoveryNoticeType;
+  title: string;
+  message: string;
+}
+
+function createRecoveryNotice(restoredImages: ImageItem[], restoredTaskState: TaskState | null): RecoveryNotice | null {
+  const hasRestoredImages = restoredImages.length > 0;
+  const hasRestoredTask = restoredTaskState ? hasRestorableTaskState(restoredTaskState) : false;
+
+  if (!hasRestoredImages && !hasRestoredTask) {
+    return null;
+  }
+
+  if (
+    restoredTaskState
+    && (restoredTaskState.status === 'paused' || restoredTaskState.lastAIRequest?.status === 'interrupted')
+  ) {
+    return {
+      type: 'interrupted-task',
+      title: '已恢复上次任务',
+      message: '页面刷新后，正在生成的请求已中断，但图片和进度已经保留。点击“继续”即可从当前进度恢复。',
+    };
+  }
+
+  if (hasRestoredTask) {
+    return {
+      type: 'workspace-restored',
+      title: '已恢复上次工作区',
+      message: '上次的图片和处理进度已经恢复，你可以继续查看结果，或直接从当前状态继续操作。',
+    };
+  }
+
+  return {
+    type: 'workspace-restored',
+    title: '已恢复上次图片',
+    message: '上次上传的图片已经恢复，可以直接继续配置或开始处理。',
+  };
+}
+
+export function useManga2Novel() {
+  const orchestratorRef = useRef<TaskOrchestrator | null>(null);
+  const imageFilesSignatureRef = useRef('');
+  const imageFilesSaveTimerRef = useRef<number | null>(null);
+  const imageMetaSaveTimerRef = useRef<number | null>(null);
+  const taskStateSaveTimerRef = useRef<number | null>(null);
+
+  if (!orchestratorRef.current) {
+    orchestratorRef.current = new TaskOrchestrator();
+  }
+
+  const orchestrator = orchestratorRef.current;
+
+  const [apiConfig, setApiConfigState] = useState<APIConfig>({
+    provider: 'compatible',
+    providerLabel: PROVIDER_DISPLAY_NAMES.compatible,
+    apiKey: '',
+    model: '',
+    baseUrl: DEFAULT_COMPATIBLE_BASE_URL,
+    stageModels: { ...DEFAULT_STAGE_MODELS },
+    stageAPIOverrides: { ...DEFAULT_STAGE_API_OVERRIDES },
+  });
+  const [images, setImages] = useState<ImageItem[]>([]);
+  const [creativePresets, setCreativePresets] = useState<CreativePreset[]>(CREATIVE_PRESETS);
+  const [taskState, setTaskState] = useState<TaskState>({
+    status: 'idle',
+    currentStage: 'idle',
+    chunks: [],
+    pageAnalyses: [],
+    chunkSyntheses: [],
+    globalSynthesis: {
+      ...DEFAULT_STORY_SYNTHESIS,
+      sceneOutline: [],
+      writingConstraints: [],
+    },
+    novelSections: [],
+    memory: { ...DEFAULT_MEMORY_STATE },
+    config: { ...DEFAULT_ORCHESTRATOR_CONFIG },
+    creativeSettings: {
+      ...DEFAULT_CREATIVE_SETTINGS,
+      systemPrompt: SYSTEM_PROMPT,
+      userPromptTemplate: USER_PROMPT_TEMPLATE,
+    },
+    currentChunkIndex: -1,
+    fullNovel: '',
+    lastAIRequest: undefined,
+  });
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
+  const [recoveryNotice, setRecoveryNotice] = useState<RecoveryNotice | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const savedKey = await secureGet('apiKey');
+      const savedStageApiKeysRaw = await secureGet('stageApiKeys');
+      const savedProvider = getJSON<APIConfig['provider']>('provider');
+      const savedProviderLabel = getJSON<string>('providerLabel');
+      const savedModel = getJSON<string>('model');
+      const savedBaseUrl = getJSON<string>('baseUrl');
+      const savedStageModels = getJSON<APIConfig['stageModels']>('stageModels');
+      const savedStageAPIOverrides = getJSON<Partial<StageAPIOverrideMap>>('stageAPIOverrides');
+      const savedOrcConfig = getJSON<OrchestratorConfig>('orchestratorConfig');
+      const savedCreativeSettings = getJSON<CreativeSettings>('creativeSettings');
+      const savedCreativeSettingsTemplateVersion = getJSON<number>('creativeSettingsTemplateVersion');
+      const savedCreativePresets = getJSON<CreativePreset[]>('creativePresets');
+      const savedStageApiKeys = (() => {
+        if (!savedStageApiKeysRaw) {
+          return undefined;
+        }
+
+        try {
+          return JSON.parse(savedStageApiKeysRaw) as Partial<Record<RequestStage, string>>;
+        } catch {
+          return undefined;
+        }
+      })();
+
+      const nextPresets = [
+        ...CREATIVE_PRESETS,
+        ...(savedCreativePresets?.filter((preset) => !CREATIVE_PRESETS.some((builtin) => builtin.id === preset.id)) || []),
+      ];
+
+      const nextProvider = normalizeProvider(savedProvider as APIConfig['provider'] | 'openrouter' | null | undefined);
+      const nextApiConfig: APIConfig = {
+        provider: nextProvider,
+        providerLabel: normalizeProviderLabel({
+          provider: nextProvider,
+          providerLabel: savedProviderLabel || '',
+        }),
+        apiKey: savedKey || '',
+        model: savedModel || '',
+        baseUrl: normalizeBaseUrl(nextProvider, savedBaseUrl, savedProvider as APIConfig['provider'] | 'openrouter' | null | undefined),
+        stageModels: { ...DEFAULT_STAGE_MODELS, ...(savedStageModels || {}) },
+        stageAPIOverrides: normalizeStageAPIOverrides(savedStageAPIOverrides, savedStageApiKeys),
+      };
+
+      setApiConfigState(nextApiConfig);
+      setCreativePresets(nextPresets);
+
+      if (savedOrcConfig) {
+        orchestrator.updateConfig(savedOrcConfig);
+      }
+
+      const nextCreativeSettings: CreativeSettings = {
+        ...DEFAULT_CREATIVE_SETTINGS,
+        systemPrompt: SYSTEM_PROMPT,
+        userPromptTemplate: USER_PROMPT_TEMPLATE,
+        ...savedCreativeSettings,
+      };
+
+      if (savedCreativeSettingsTemplateVersion !== CREATIVE_SETTINGS_TEMPLATE_VERSION) {
+        const { supplementalPrompt, roleAndStyle } = splitSystemPrompt(nextCreativeSettings.systemPrompt);
+        nextCreativeSettings.systemPrompt = composeSystemPrompt(supplementalPrompt, roleAndStyle, SYSTEM_PROMPT_BODY);
+        nextCreativeSettings.userPromptTemplate = (nextCreativeSettings.userPromptTemplate.trim() || USER_PROMPT_TEMPLATE)
+          .replace(/\n?\{\{safetyInstruction\}\}\n?/g, '\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+        setJSON('creativeSettingsTemplateVersion', CREATIVE_SETTINGS_TEMPLATE_VERSION);
+        setJSON('creativeSettings', nextCreativeSettings);
+      }
+
+      nextCreativeSettings.presetId = resolvePresetIdFromPresets(nextCreativeSettings.systemPrompt, nextPresets);
+      orchestrator.setAPIConfig(nextApiConfig);
+      orchestrator.updateCreativeSettings(nextCreativeSettings);
+
+      setTaskState((prev) => ({
+        ...prev,
+        config: savedOrcConfig ? { ...DEFAULT_ORCHESTRATOR_CONFIG, ...savedOrcConfig } : prev.config,
+        creativeSettings: nextCreativeSettings,
+      }));
+      setConfigLoaded(true);
+    })();
+  }, [orchestrator]);
+
+  useEffect(() => {
+    return orchestrator.on((event) => {
+      setTaskState(event.state);
+      if (event.type === 'image-processed') {
+        setImages((prev) => [...prev]);
+      }
+    });
+  }, [orchestrator]);
+
+  useEffect(() => {
+    if (!configLoaded || workspaceLoaded) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    (async () => {
+      try {
+        const snapshot = await loadWorkspaceSnapshot();
+        if (isCancelled || !snapshot) {
+          return;
+        }
+
+        const restoredImages = restoreImagesFromSnapshot(snapshot.images);
+        setImages(restoredImages);
+
+        let restoredTaskState: TaskState | null = null;
+        if (snapshot.taskState) {
+          restoredTaskState = restoreTaskStateFromSnapshot(snapshot.taskState, restoredImages);
+          orchestrator.restoreState(restoredTaskState);
+        }
+
+        setRecoveryNotice(createRecoveryNotice(restoredImages, restoredTaskState));
+      } finally {
+        if (!isCancelled) {
+          setWorkspaceLoaded(true);
+        }
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [configLoaded, orchestrator, workspaceLoaded]);
+
+  useEffect(() => {
+    if (!workspaceLoaded) {
+      return;
+    }
+
+    const workspaceEmpty = images.length === 0 && !hasRestorableTaskState(taskState);
+    if (!workspaceEmpty) {
+      return;
+    }
+
+    setRecoveryNotice(null);
+    void clearWorkspaceSnapshot();
+  }, [images.length, taskState, workspaceLoaded]);
+
+  useEffect(() => {
+    if (!workspaceLoaded) {
+      return;
+    }
+
+    const nextSignature = images.map((image) => `${image.id}:${image.file.name}:${image.file.size}`).join('|');
+    if (nextSignature === imageFilesSignatureRef.current) {
+      return;
+    }
+
+    imageFilesSignatureRef.current = nextSignature;
+
+    if (imageFilesSaveTimerRef.current !== null) {
+      window.clearTimeout(imageFilesSaveTimerRef.current);
+    }
+
+    imageFilesSaveTimerRef.current = window.setTimeout(() => {
+      void saveWorkspaceImageFiles(images);
+      imageFilesSaveTimerRef.current = null;
+    }, 100);
+
+    return () => {
+      if (imageFilesSaveTimerRef.current !== null) {
+        window.clearTimeout(imageFilesSaveTimerRef.current);
+        imageFilesSaveTimerRef.current = null;
+      }
+    };
+  }, [images, workspaceLoaded]);
+
+  useEffect(() => {
+    if (!workspaceLoaded) {
+      return;
+    }
+
+    if (imageMetaSaveTimerRef.current !== null) {
+      window.clearTimeout(imageMetaSaveTimerRef.current);
+    }
+
+    imageMetaSaveTimerRef.current = window.setTimeout(() => {
+      void saveWorkspaceImageMeta(serializeImages(images));
+      imageMetaSaveTimerRef.current = null;
+    }, 100);
+
+    return () => {
+      if (imageMetaSaveTimerRef.current !== null) {
+        window.clearTimeout(imageMetaSaveTimerRef.current);
+        imageMetaSaveTimerRef.current = null;
+      }
+    };
+  }, [images, workspaceLoaded]);
+
+  useEffect(() => {
+    if (!workspaceLoaded || (images.length === 0 && !hasRestorableTaskState(taskState))) {
+      return;
+    }
+
+    if (taskStateSaveTimerRef.current !== null) {
+      window.clearTimeout(taskStateSaveTimerRef.current);
+    }
+
+    taskStateSaveTimerRef.current = window.setTimeout(() => {
+      void saveWorkspaceTaskState(hasRestorableTaskState(taskState) ? serializeTaskState(taskState) : null);
+      taskStateSaveTimerRef.current = null;
+    }, 100);
+
+    return () => {
+      if (taskStateSaveTimerRef.current !== null) {
+        window.clearTimeout(taskStateSaveTimerRef.current);
+        taskStateSaveTimerRef.current = null;
+      }
+    };
+  }, [images.length, taskState, workspaceLoaded]);
+
+  const saveApiConfig = useCallback(async (config: APIConfig) => {
+    const normalizedConfig: APIConfig = {
+      provider: config.provider,
+      providerLabel: normalizeProviderLabel(config),
+      apiKey: config.apiKey.trim(),
+      model: config.model.trim(),
+      baseUrl: config.baseUrl?.trim() || '',
+      stageModels: REQUEST_STAGES.reduce((result, stage) => {
+        result[stage] = config.stageModels[stage]?.trim() || '';
+        return result;
+      }, { ...DEFAULT_STAGE_MODELS }),
+      stageAPIOverrides: normalizeStageAPIOverrides(config.stageAPIOverrides),
+    };
+    const stageApiKeys = extractStageApiKeys(normalizedConfig.stageAPIOverrides);
+
+    setApiConfigState(normalizedConfig);
+    if (normalizedConfig.apiKey) {
+      await secureSet('apiKey', normalizedConfig.apiKey);
+    } else {
+      secureRemove('apiKey');
+    }
+    if (Object.keys(stageApiKeys).length > 0) {
+      await secureSet('stageApiKeys', JSON.stringify(stageApiKeys));
+    } else {
+      secureRemove('stageApiKeys');
+    }
+
+    setJSON('provider', normalizedConfig.provider);
+    setJSON('providerLabel', normalizedConfig.providerLabel || '');
+    setJSON('model', normalizedConfig.model);
+    setJSON('baseUrl', normalizedConfig.baseUrl || '');
+    setJSON('stageModels', normalizedConfig.stageModels);
+    setJSON('stageAPIOverrides', serializeStageAPIOverrides(normalizedConfig.stageAPIOverrides));
+    orchestrator.setAPIConfig(normalizedConfig);
+  }, [orchestrator]);
+
+  const saveOrchestratorConfig = useCallback((config: Partial<OrchestratorConfig>) => {
+    orchestrator.updateConfig(config);
+    const current = orchestrator.getState().config;
+    setJSON('orchestratorConfig', current);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const fetchModels = useCallback(async (config: Pick<APIConfig, 'provider' | 'providerLabel' | 'apiKey' | 'baseUrl'>) => {
+    return fetchProviderModels(config);
+  }, []);
+
+  const updateCreativeSettings = useCallback((settings: Partial<CreativeSettings>) => {
+    const currentSettings = orchestrator.getState().creativeSettings;
+    const nextSettings: Partial<CreativeSettings> = { ...settings };
+
+    if (typeof settings.systemPrompt === 'string' && settings.presetId === undefined) {
+      nextSettings.presetId = resolvePresetIdFromPresets(settings.systemPrompt, creativePresets);
+    }
+
+    if (settings.presetId && settings.presetId !== CUSTOM_PRESET_ID) {
+      const preset = creativePresets.find((item) => item.id === settings.presetId);
+      if (preset) {
+        const { roleAndStyle } = splitSystemPrompt(preset.prompt);
+        const { supplementalPrompt, systemPromptBody } = splitSystemPrompt(currentSettings.systemPrompt);
+        nextSettings.systemPrompt = composeSystemPrompt(supplementalPrompt, roleAndStyle, systemPromptBody);
+      }
+    }
+
+    if (settings.presetId === CUSTOM_PRESET_ID && settings.systemPrompt === undefined) {
+      nextSettings.systemPrompt = currentSettings.systemPrompt;
+    }
+
+    orchestrator.updateCreativeSettings(nextSettings);
+    const currentState = orchestrator.getState();
+    setJSON('creativeSettings', currentState.creativeSettings);
+    setTaskState(currentState);
+  }, [creativePresets, orchestrator]);
+
+  const applyCreativePreset = useCallback((presetId: string) => {
+    if (presetId === CUSTOM_PRESET_ID) {
+      updateCreativeSettings({ presetId: CUSTOM_PRESET_ID });
+      return;
+    }
+
+    const preset = creativePresets.find((item) => item.id === presetId) || CREATIVE_PRESETS[1];
+    const { roleAndStyle } = splitSystemPrompt(preset.prompt);
+    const { supplementalPrompt, systemPromptBody } = splitSystemPrompt(orchestrator.getState().creativeSettings.systemPrompt);
+    updateCreativeSettings({
+      presetId: preset.id,
+      systemPrompt: composeSystemPrompt(supplementalPrompt, roleAndStyle, systemPromptBody),
+    });
+  }, [creativePresets, orchestrator, updateCreativeSettings]);
+
+  const saveCreativePreset = useCallback((name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      throw new Error('请输入预设名称');
+    }
+
+    const { roleAndStyle } = splitSystemPrompt(orchestrator.getState().creativeSettings.systemPrompt);
+    if (!roleAndStyle.trim()) {
+      throw new Error('当前风格内容为空，无法保存为预设');
+    }
+
+    const existingCustomPresets = creativePresets.filter((preset) => !CREATIVE_PRESETS.some((builtin) => builtin.id === preset.id));
+    const existingPreset = existingCustomPresets.find((preset) => preset.name === trimmedName);
+    const nextPreset: CreativePreset = existingPreset
+      ? { ...existingPreset, prompt: roleAndStyle }
+      : {
+          id: `user-${Date.now()}`,
+          name: trimmedName,
+          prompt: roleAndStyle,
+        };
+
+    const nextCustomPresets = existingPreset
+      ? existingCustomPresets.map((preset) => (preset.id === existingPreset.id ? nextPreset : preset))
+      : [...existingCustomPresets, nextPreset];
+    const nextPresets = [...CREATIVE_PRESETS, ...nextCustomPresets];
+
+    setCreativePresets(nextPresets);
+    setJSON('creativePresets', nextCustomPresets);
+    updateCreativeSettings({ presetId: nextPreset.id });
+  }, [creativePresets, orchestrator, updateCreativeSettings]);
+
+  const deleteCreativePreset = useCallback((presetId: string) => {
+    const isBuiltinPreset = CREATIVE_PRESETS.some((preset) => preset.id === presetId);
+    if (presetId === CUSTOM_PRESET_ID || isBuiltinPreset) {
+      return;
+    }
+
+    const nextCustomPresets = creativePresets.filter(
+      (preset) => !CREATIVE_PRESETS.some((builtin) => builtin.id === preset.id) && preset.id !== presetId
+    );
+    const nextPresets = [...CREATIVE_PRESETS, ...nextCustomPresets];
+    setCreativePresets(nextPresets);
+    setJSON('creativePresets', nextCustomPresets);
+
+    if (orchestrator.getState().creativeSettings.presetId === presetId) {
+      updateCreativeSettings({ presetId: CUSTOM_PRESET_ID });
+    }
+  }, [creativePresets, orchestrator, updateCreativeSettings]);
+
+  const addImages = useCallback((files: File[]) => {
+    const newImages: ImageItem[] = files.map((file) => ({
+      id: `img_${Date.now()}_${++idCounter}`,
+      file,
+      previewUrl: createPreviewUrl(file),
+      status: 'pending',
+      originalSize: file.size,
+    }));
+    setImages((prev) => [...prev, ...newImages]);
+  }, []);
+
+  const removeImage = useCallback((id: string) => {
+    setImages((prev) => {
+      const image = prev.find((item) => item.id === id);
+      if (image) {
+        revokePreviewUrl(image.previewUrl);
+      }
+      return prev.filter((item) => item.id !== id);
+    });
+  }, []);
+
+  const reorderImages = useCallback((fromIndex: number, toIndex: number) => {
+    setImages((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const clearImages = useCallback(() => {
+    images.forEach((image) => revokePreviewUrl(image.previewUrl));
+    setImages([]);
+  }, [images]);
+
+  const dismissRecoveryNotice = useCallback(() => {
+    setRecoveryNotice(null);
+  }, []);
+
+const startProcessing = useCallback(async () => {
+    if (!canResolveStageAccess(apiConfig)) {
+      throw new Error('请先补全各阶段可用的 API Key 和模型。独立接口阶段可以填自己的 Key / 模型，其余阶段会沿用默认接口。');
+    }
+    if (!apiConfig.apiKey && !REQUEST_STAGES.some((stage) => apiConfig.stageAPIOverrides[stage].enabled)) {
+      throw new Error('请先配置 API Key');
+    }
+    if (!canResolveModels(apiConfig)) {
+      throw new Error('请至少填写主模型，或为四个阶段分别配置模型');
+    }
+
+    setRecoveryNotice(null);
+    orchestrator.setAPIConfig(apiConfig);
+    await orchestrator.prepare(images);
+    setImages([...images]);
+    await orchestrator.run();
+  }, [apiConfig, images, orchestrator]);
+
+  const pause = useCallback(() => {
+    orchestrator.pause();
+  }, [orchestrator]);
+
+  const resume = useCallback(async () => {
+    setRecoveryNotice(null);
+    await orchestrator.resume();
+  }, [orchestrator]);
+
+  const skipCurrent = useCallback(async () => {
+    setRecoveryNotice(null);
+    await orchestrator.skipAndContinue();
+  }, [orchestrator]);
+
+  const retryCurrent = useCallback(async () => {
+    setRecoveryNotice(null);
+    await orchestrator.retryCurrentAndContinue();
+  }, [orchestrator]);
+
+  const reanalyzePage = useCallback(async (pageIndex: number) => {
+    return orchestrator.reanalyzePageAndPause(pageIndex);
+  }, [orchestrator]);
+
+  const regenerateChunk = useCallback(async (chunkIndex: number) => {
+    return orchestrator.regenerateChunkAndPause(chunkIndex);
+  }, [orchestrator]);
+
+  const regenerateStory = useCallback(async () => {
+    return orchestrator.regenerateStoryAndPause();
+  }, [orchestrator]);
+
+  const regenerateSection = useCallback(async (sectionIndex: number) => {
+    return orchestrator.regenerateSectionAndPause(sectionIndex);
+  }, [orchestrator]);
+
+  const reset = useCallback(() => {
+    setRecoveryNotice(null);
+    orchestrator.reset();
+  }, [orchestrator]);
+
+  const exportNovel = useCallback((format: 'txt' | 'md' = 'txt') => {
+    const content = format === 'md'
+      ? `# Manga2Novel 输出\n\n${taskState.fullNovel}`
+      : taskState.fullNovel;
+    const mimeType = format === 'md'
+      ? 'text/markdown;charset=utf-8'
+      : 'text/plain;charset=utf-8';
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `manga2novel_${new Date().toISOString().slice(0, 10)}.${format}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [taskState.fullNovel]);
+
+  return {
+    apiConfig,
+    creativePresets,
+    images,
+    taskState,
+    configLoaded,
+    recoveryNotice,
+    saveApiConfig,
+    saveCreativePreset,
+    deleteCreativePreset,
+    saveOrchestratorConfig,
+    fetchModels,
+    updateCreativeSettings,
+    applyCreativePreset,
+    addImages,
+    removeImage,
+    reorderImages,
+    clearImages,
+    startProcessing,
+    pause,
+    resume,
+    skipCurrent,
+    retryCurrent,
+    reanalyzePage,
+    regenerateChunk,
+    regenerateStory,
+    regenerateSection,
+    dismissRecoveryNotice,
+    reset,
+    exportNovel,
+  };
+}
