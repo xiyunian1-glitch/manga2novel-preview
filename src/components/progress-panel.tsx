@@ -106,6 +106,8 @@ function buildSkippedFallbackNotice(stage: RequestStage): string | null {
       return '说明：当前内容来自跳过后的兜底分块综合，不是本阶段模型成功返回。';
     case 'synthesize-story':
       return '说明：当前内容来自跳过后的兜底整书综合，不是本阶段模型成功返回。';
+    case 'polish-novel':
+      return '说明：当前全书统稿阶段被跳过，因此导出内容仍然是章节写作完成后的拼接正文。';
     default:
       return null;
   }
@@ -118,6 +120,7 @@ function stageLabel(stage: PipelineStage): string {
     'synthesize-chunks': '分块综合',
     'synthesize-story': '整书综合',
     'write-sections': '章节写作',
+    'polish-novel': '全书统稿',
   };
   return labels[stage];
 }
@@ -291,9 +294,33 @@ function buildStoryDetail(taskState: TaskState): string {
     `全书概览：${taskState.globalSynthesis.storyOverview || '暂无'}`,
     `世界说明：${taskState.globalSynthesis.worldGuide || '暂无'}`,
     `人物说明：${taskState.globalSynthesis.characterGuide || '暂无'}`,
+    `sceneOutline 确认：${taskState.globalSynthesis.outlineConfirmed ? '已确认' : '待确认'}`,
     `场景大纲：\n${sceneLines}`,
     `写作约束：${joinValues(taskState.globalSynthesis.writingConstraints, '无')}`,
     taskState.globalSynthesis.error ? `错误：${taskState.globalSynthesis.error}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildFinalPolishPreview(taskState: TaskState): string {
+  const skippedNotice = taskState.finalPolish.status === 'skipped'
+    ? buildSkippedFallbackNotice('polish-novel')
+    : null;
+
+  return [
+    skippedNotice,
+    `统稿正文：${extractPreview(taskState.finalPolish.markdownBody || taskState.fullNovel, 260)}`,
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildFinalPolishDetail(taskState: TaskState): string {
+  const skippedNotice = taskState.finalPolish.status === 'skipped'
+    ? buildSkippedFallbackNotice('polish-novel')
+    : null;
+
+  return [
+    skippedNotice,
+    taskState.finalPolish.markdownBody || taskState.fullNovel || '尚未生成统稿正文',
+    taskState.finalPolish.error ? `错误：${taskState.finalPolish.error}` : '',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -339,6 +366,11 @@ function getReplayActionCopy(stage: RequestStage): { buttonLabel: string; descri
         buttonLabel: '重新生成此节',
         description: '只会重写当前节，并把后续章节标记为待更新，方便按顺序继续补跑。',
       };
+    case 'polish-novel':
+      return {
+        buttonLabel: '重新全书统稿',
+        description: '只会重跑最后的全书统稿/润色阶段，不会重写前面的章节正文。',
+      };
     default:
       return {
         buttonLabel: '重新处理',
@@ -354,7 +386,7 @@ function canRegenerateItem(
 ): item is ActiveItem {
   return Boolean(
     item
-    && item.status !== 'pending'
+    && (item.status !== 'pending' || item.stage === 'polish-novel')
     && item.status !== 'processing'
     && onRegenerateItem
     && taskStatus !== 'running'
@@ -418,6 +450,23 @@ function buildStageItems(taskState: TaskState, stage: RequestStage): ActiveItem[
         detailContent: buildSectionDetail(section),
         previewContent: buildSectionPreview(section),
       }));
+    case 'polish-novel':
+      return [
+        {
+          key: 'final-polish',
+          stage,
+          itemIndex: 0,
+          label: '全书统稿 / 润色',
+          meta: taskState.finalPolish.markdownBody?.trim()
+            ? '已生成最终稿'
+            : '基于章节正文做全书层面的统一润色',
+          status: taskState.finalPolish.status,
+          error: taskState.finalPolish.error,
+          detailTitle: '全书统稿详情',
+          detailContent: buildFinalPolishDetail(taskState),
+          previewContent: buildFinalPolishPreview(taskState),
+        },
+      ];
     default:
       return [];
   }
@@ -457,6 +506,14 @@ function buildStagePreview(taskState: TaskState, stage: RequestStage): StagePrev
         title: '章节写作预览',
         description: '查看每个章节的正文片段和承接摘要。',
         emptyText: '章节写作开始后，这里会显示章节预览。',
+        items,
+      };
+    case 'polish-novel':
+      return {
+        stage,
+        title: '全书统稿预览',
+        description: '查看最终统稿后的全书正文，或确认当前是否跳过了最后统稿阶段。',
+        emptyText: '启用全书统稿后，这里会显示最终稿预览。',
         items,
       };
     default:
@@ -503,11 +560,18 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   const totalSections = taskState.novelSections.length > 0
     ? taskState.novelSections.length
     : taskState.chunkSyntheses.length;
-  const totalUnits = taskState.pageAnalyses.length + taskState.chunkSyntheses.length + 1 + totalSections;
+  const finalPolishUnitCount = taskState.config.enableFinalPolish ? 1 : 0;
+  const totalUnits = taskState.pageAnalyses.length + taskState.chunkSyntheses.length + 1 + totalSections + finalPolishUnitCount;
   const completedUnits = countCompleted(taskState.pageAnalyses)
     + countCompleted(taskState.chunkSyntheses)
     + (taskState.globalSynthesis.status === 'success' || taskState.globalSynthesis.status === 'skipped' ? 1 : 0)
-    + countCompleted(taskState.novelSections);
+    + countCompleted(taskState.novelSections)
+    + (
+      taskState.config.enableFinalPolish
+        && (taskState.finalPolish.status === 'success' || taskState.finalPolish.status === 'skipped')
+        ? 1
+        : 0
+    );
   const progress = totalUnits > 0 ? (completedUnits / totalUnits) * 100 : 0;
 
   const requestElapsedMs = (() => {
@@ -580,6 +644,12 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
       value: `${countCompleted(taskState.novelSections)} / ${taskState.novelSections.length}`,
       hint: '点击查看章节预览',
     },
+    ...(taskState.config.enableFinalPolish ? [{
+      stage: 'polish-novel' as const,
+      title: '全书统稿',
+      value: statusLabel(taskState.finalPolish.status, { stage: 'polish-novel' }),
+      hint: '点击查看最终稿预览',
+    }] : []),
   ];
   const activeItems = buildStageItems(taskState, getCurrentItemsStage(taskState.currentStage));
   const activeErrorItem = activeItems.find((item) => item.status === 'error' && item.error);

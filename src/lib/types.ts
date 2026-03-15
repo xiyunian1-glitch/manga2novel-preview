@@ -1,11 +1,13 @@
 export type APIProvider = 'compatible' | 'gemini';
 export type RequestStage = Exclude<PipelineStage, 'idle'>;
+export type WritingMode = 'faithful' | 'literary';
 
 export const REQUEST_STAGES: RequestStage[] = [
   'analyze-pages',
   'synthesize-chunks',
   'synthesize-story',
   'write-sections',
+  'polish-novel',
 ];
 
 export const REQUEST_STAGE_LABELS: Record<RequestStage, string> = {
@@ -13,6 +15,7 @@ export const REQUEST_STAGE_LABELS: Record<RequestStage, string> = {
   'synthesize-chunks': '分块综合',
   'synthesize-story': '整书综合',
   'write-sections': '章节写作',
+  'polish-novel': '全书统稿',
 };
 
 export type StageModelConfig = Record<RequestStage, string>;
@@ -43,6 +46,7 @@ export interface CreativeSettings {
   systemPrompt: string;
   userPromptTemplate: string;
   temperature: number;
+  writingMode: WritingMode;
 }
 
 export interface CreativePreset {
@@ -74,7 +78,8 @@ export type PipelineStage =
   | 'analyze-pages'
   | 'synthesize-chunks'
   | 'synthesize-story'
-  | 'write-sections';
+  | 'write-sections'
+  | 'polish-novel';
 
 export interface ImageChunk {
   index: number;
@@ -147,6 +152,14 @@ export interface StorySynthesis {
   characterGuide: string;
   sceneOutline: ScenePlan[];
   writingConstraints: string[];
+  outlineConfirmed: boolean;
+  error?: string;
+  retryCount: number;
+}
+
+export interface FinalPolish {
+  status: ChunkStatus;
+  markdownBody?: string;
   error?: string;
   retryCount: number;
 }
@@ -175,6 +188,7 @@ export interface OrchestratorConfig {
   maxRetries: number;
   retryDelay: number;
   autoSkipOnError: boolean;
+  enableFinalPolish: boolean;
 }
 
 export interface AIResponse {
@@ -222,6 +236,7 @@ export interface TaskState {
   chunkSyntheses: ChunkSynthesis[];
   globalSynthesis: StorySynthesis;
   novelSections: NovelSection[];
+  finalPolish: FinalPolish;
   memory: MemoryState;
   config: OrchestratorConfig;
   creativeSettings: CreativeSettings;
@@ -237,6 +252,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   maxRetries: 3,
   retryDelay: 2000,
   autoSkipOnError: false,
+  enableFinalPolish: false,
 };
 
 export const DEFAULT_STAGE_MODELS: StageModelConfig = {
@@ -244,6 +260,7 @@ export const DEFAULT_STAGE_MODELS: StageModelConfig = {
   'synthesize-chunks': '',
   'synthesize-story': '',
   'write-sections': '',
+  'polish-novel': '',
 };
 
 export const DEFAULT_STAGE_API_OVERRIDES: StageAPIOverrideMap = {
@@ -272,6 +289,14 @@ export const DEFAULT_STAGE_API_OVERRIDES: StageAPIOverrideMap = {
     baseUrl: '',
   },
   'write-sections': {
+    enabled: false,
+    provider: 'compatible',
+    providerLabel: '',
+    apiKey: '',
+    model: '',
+    baseUrl: '',
+  },
+  'polish-novel': {
     enabled: false,
     provider: 'compatible',
     providerLabel: '',
@@ -319,8 +344,21 @@ export function resolveStageAPIConfig(config: APIConfig, stage: RequestStage): A
   };
 }
 
-export function canResolveStageAccess(config: APIConfig): boolean {
-  return REQUEST_STAGES.every((stage) => {
+export function getEnabledRequestStages(
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
+): RequestStage[] {
+  if (orchestratorConfig?.enableFinalPolish) {
+    return REQUEST_STAGES;
+  }
+
+  return REQUEST_STAGES.filter((stage) => stage !== 'polish-novel');
+}
+
+export function canResolveStageAccess(
+  config: APIConfig,
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
+): boolean {
+  return getEnabledRequestStages(orchestratorConfig).every((stage) => {
     const stageConfig = resolveStageAPIConfig(config, stage);
     return Boolean(stageConfig.apiKey.trim() && stageConfig.model.trim());
   });
@@ -339,6 +377,12 @@ export const DEFAULT_STORY_SYNTHESIS: StorySynthesis = {
   characterGuide: '',
   sceneOutline: [],
   writingConstraints: [],
+  outlineConfirmed: false,
+  retryCount: 0,
+};
+
+export const DEFAULT_FINAL_POLISH: FinalPolish = {
+  status: 'pending',
   retryCount: 0,
 };
 
@@ -347,6 +391,12 @@ export const DEFAULT_CREATIVE_SETTINGS: CreativeSettings = {
   systemPrompt: '',
   userPromptTemplate: '',
   temperature: 0.75,
+  writingMode: 'faithful',
+};
+
+export const WRITING_MODE_LABELS: Record<WritingMode, string> = {
+  faithful: '忠实转写',
+  literary: '文学改写',
 };
 
 export const DEFAULT_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';

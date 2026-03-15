@@ -25,6 +25,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
   const completedSections = taskState.novelSections.filter((section) => (
     section.status === 'success' && Boolean(section.markdownBody?.trim())
   ));
+  const hasFinalPolish = taskState.finalPolish.status === 'success' && Boolean(taskState.finalPolish.markdownBody?.trim());
 
   return (
     <Card className="flex h-full flex-col">
@@ -49,7 +50,21 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 min-h-0 space-y-4">
-        {completedSections.length > 0 ? (
+        {hasFinalPolish ? (
+          <ScrollArea className="h-[500px]">
+            <div className="space-y-4 pr-4">
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                  全书统稿版
+                </span>
+                <Separator className="flex-1" />
+              </div>
+              <div className="whitespace-pre-wrap text-sm leading-7">
+                {taskState.finalPolish.markdownBody}
+              </div>
+            </div>
+          </ScrollArea>
+        ) : completedSections.length > 0 ? (
           <ScrollArea className="h-[500px]">
             <div className="space-y-4 pr-4">
               {completedSections.map((section) => (

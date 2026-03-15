@@ -497,13 +497,14 @@ function extractCompatibleChoiceText(choice: CompatibleChoice | undefined): stri
 function buildCompatibleEmptyCompletionError(
   providerDisplayName: string,
   data: CompatibleChatCompletionResponse,
-  options: GenerationOptions
+  options: GenerationOptions,
+  extraDiagnostics: string[] = []
 ): Error {
   const choice = data.choices?.[0];
   const finishReason = String(choice?.finish_reason || '').trim() || 'unknown';
   const promptTokens = data.usage?.prompt_tokens;
   const completionTokens = data.usage?.completion_tokens;
-  const diagnostics = [`finish_reason=${finishReason}`];
+  const diagnostics = [`finish_reason=${finishReason}`, ...extraDiagnostics];
 
   if (typeof promptTokens === 'number' && Number.isFinite(promptTokens)) {
     diagnostics.push(`prompt_tokens=${promptTokens}`);
@@ -523,6 +524,78 @@ function buildCompatibleEmptyCompletionError(
 
   return new Error(
     `${providerDisplayName} returned an empty completion (${diagnostics.join(', ')}) at max_tokens=${options.maxOutputTokens ?? 4096}.${likelyBlockedHint}`
+  );
+}
+
+function isMarkdownFenceOnlyPlaceholder(text: string): boolean {
+  const normalized = normalizeModelText(text).toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return /^```+(?:\s*(?:json|jsonc|javascript|js|typescript|ts)?)?\s*$/.test(normalized)
+    || /^```+(?:\s*(?:json|jsonc|javascript|js|typescript|ts)?)?\s*```+\s*$/.test(normalized);
+}
+
+function buildCompatibleChatCompletionRequestBody(
+  config: APIConfig,
+  imageContents: Array<{
+    type: 'image_url';
+    image_url: {
+      url: string;
+    };
+  }>,
+  options: GenerationOptions,
+  includeResponseFormat: boolean
+): string {
+  return JSON.stringify({
+    model: config.model,
+    messages: [
+      { role: 'system', content: options.systemPrompt },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: options.userPrompt },
+          ...imageContents,
+        ],
+      },
+    ],
+    temperature: options.temperature,
+    max_tokens: options.maxOutputTokens ?? 4096,
+    ...(includeResponseFormat && options.responseMimeType === 'application/json'
+      ? {
+          response_format: { type: 'json_object' },
+        }
+      : {}),
+  });
+}
+
+async function requestCompatibleChatCompletion(
+  config: APIConfig,
+  imageContents: Array<{
+    type: 'image_url';
+    image_url: {
+      url: string;
+    };
+  }>,
+  options: GenerationOptions,
+  signal: AbortSignal | undefined,
+  includeResponseFormat: boolean
+): Promise<CompatibleChatCompletionResponse> {
+  const providerDisplayName = getProviderDisplayName(config);
+  const url = `${getProviderBaseUrl(config)}/chat/completions`;
+  const response = await fetchWithDiagnostics(url, {
+    method: 'POST',
+    headers: getCompatibleHeaders(config.apiKey, url),
+    signal,
+    body: buildCompatibleChatCompletionRequestBody(config, imageContents, options, includeResponseFormat),
+  }, `${providerDisplayName} request failed`);
+
+  return parseJsonResponse<CompatibleChatCompletionResponse>(
+    response,
+    `${providerDisplayName} request failed`,
+    'response was not valid JSON'
   );
 }
 
@@ -899,68 +972,65 @@ async function callCompatibleText(
     image_url: { url: `data:${img.mime};base64,${img.base64}` },
   }));
 
-  const url = `${getProviderBaseUrl(config)}/chat/completions`;
-  const response = await fetchWithDiagnostics(url, {
-    method: 'POST',
-    headers: getCompatibleHeaders(config.apiKey, url),
-    signal,
-    body: JSON.stringify({
-      model: config.model,
-      messages: [
-        { role: 'system', content: options.systemPrompt },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: options.userPrompt },
-            ...imageContents,
-          ],
-        },
-      ],
-      temperature: options.temperature,
-      max_tokens: options.maxOutputTokens ?? 4096,
-      ...(options.responseMimeType === 'application/json'
-        ? {
-            response_format: { type: 'json_object' },
-          }
-        : {}),
-    }),
-  }, `${providerDisplayName} request failed`);
+  const requestText = async (includeResponseFormat: boolean): Promise<string> => {
+    const data = await requestCompatibleChatCompletion(
+      config,
+      imageContents,
+      options,
+      signal,
+      includeResponseFormat
+    );
 
-  const data = await parseJsonResponse<CompatibleChatCompletionResponse>(
-    response,
-    `${providerDisplayName} request failed`,
-    'response was not valid JSON'
-  );
+    if (typeof data.error?.message === 'string' && data.error.message.trim()) {
+      const codeSuffix = data.error.code?.trim() ? ` (code=${data.error.code.trim()})` : '';
+      throw new Error(`${data.error.message.trim()}${codeSuffix}`);
+    }
 
-  if (typeof data.error?.message === 'string' && data.error.message.trim()) {
-    const codeSuffix = data.error.code?.trim() ? ` (code=${data.error.code.trim()})` : '';
-    throw new Error(`${data.error.message.trim()}${codeSuffix}`);
-  }
+    const choice = data.choices?.[0];
+    const rawText = extractCompatibleChoiceText(choice);
+    const canRetryWithoutResponseFormat = includeResponseFormat && options.responseMimeType === 'application/json';
 
-  const choice = data.choices?.[0];
-  const rawText = extractCompatibleChoiceText(choice);
+    if (!rawText) {
+      if (canRetryWithoutResponseFormat) {
+        return requestText(false);
+      }
 
-  if (!rawText) {
+      if (isLengthTruncatedCompletion(choice?.finish_reason)) {
+        throw new Error(
+          `${providerDisplayName} truncated the completion because finish_reason=length at max_tokens=${options.maxOutputTokens ?? 4096}.`
+        );
+      }
+      throw buildCompatibleEmptyCompletionError(providerDisplayName, data, options);
+    }
+
+    if (isMarkdownFenceOnlyPlaceholder(rawText)) {
+      if (canRetryWithoutResponseFormat) {
+        return requestText(false);
+      }
+
+      throw buildCompatibleEmptyCompletionError(
+        providerDisplayName,
+        data,
+        options,
+        ['content=markdown_fence_only']
+      );
+    }
+
+    const wrappedProviderError = getWrappedProviderError(rawText);
+    if (wrappedProviderError) {
+      throw new Error(wrappedProviderError);
+    }
+
     if (isLengthTruncatedCompletion(choice?.finish_reason)) {
       throw new Error(
         `${providerDisplayName} truncated the completion because finish_reason=length at max_tokens=${options.maxOutputTokens ?? 4096}.`
       );
     }
-    throw buildCompatibleEmptyCompletionError(providerDisplayName, data, options);
-  }
 
-  const wrappedProviderError = getWrappedProviderError(rawText);
-  if (wrappedProviderError) {
-    throw new Error(wrappedProviderError);
-  }
+    return rawText;
+  };
 
-  if (isLengthTruncatedCompletion(choice?.finish_reason)) {
-    throw new Error(
-      `${providerDisplayName} truncated the completion because finish_reason=length at max_tokens=${options.maxOutputTokens ?? 4096}.`
-    );
-  }
-
-  return rawText;
+  return requestText(options.responseMimeType === 'application/json');
 }
 
 async function callGeminiText(

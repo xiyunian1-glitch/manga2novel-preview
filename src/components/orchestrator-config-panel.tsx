@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import { Settings } from 'lucide-react';
 import type { OrchestratorConfig } from '@/lib/types';
 
@@ -22,6 +23,22 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-2 rounded-lg border bg-muted/15 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <Label className="text-sm">全书统稿 / 润色</Label>
+              <p className="text-xs text-muted-foreground">
+                章节写作全部完成后，可选再跑一次全书统稿，统一称呼、衔接、节奏与文风。
+              </p>
+            </div>
+            <Switch
+              checked={config.enableFinalPolish}
+              onCheckedChange={(checked) => onUpdate({ enableFinalPolish: checked })}
+              disabled={disabled}
+            />
+          </div>
+        </div>
+
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-sm">每组图片数（逐页分析）</Label>

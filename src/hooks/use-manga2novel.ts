@@ -8,6 +8,7 @@ import type {
   ImageItem,
   OrchestratorConfig,
   RequestStage,
+  ScenePlan,
   StageAPIOverrideConfig,
   StageAPIOverrideMap,
   TaskState,
@@ -15,11 +16,13 @@ import type {
 import {
   DEFAULT_COMPATIBLE_BASE_URL,
   DEFAULT_CREATIVE_SETTINGS,
+  DEFAULT_FINAL_POLISH,
   DEFAULT_ORCHESTRATOR_CONFIG,
   DEFAULT_MEMORY_STATE,
   DEFAULT_STAGE_API_OVERRIDES,
   DEFAULT_STAGE_MODELS,
   DEFAULT_STORY_SYNTHESIS,
+  getEnabledRequestStages,
   LEGACY_OPENROUTER_BASE_URL,
   PROVIDER_DISPLAY_NAMES,
   REQUEST_STAGES,
@@ -70,8 +73,11 @@ function resolvePresetIdFromPresets(systemPrompt: string, presets: CreativePrese
   return matchedPreset?.id || CUSTOM_PRESET_ID;
 }
 
-function canResolveModels(config: APIConfig): boolean {
-  return REQUEST_STAGES.every((stage) => Boolean(resolveStageModel(config, stage)));
+function canResolveModels(
+  config: APIConfig,
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
+): boolean {
+  return getEnabledRequestStages(orchestratorConfig).every((stage) => Boolean(resolveStageModel(config, stage)));
 }
 
 function normalizeProviderLabel(config: Pick<APIConfig, 'provider' | 'providerLabel'>): string {
@@ -160,8 +166,11 @@ function extractStageApiKeys(overrides: StageAPIOverrideMap): Partial<Record<Req
   }, {} as Partial<Record<RequestStage, string>>);
 }
 
-function canResolveStageAccess(config: APIConfig): boolean {
-  return REQUEST_STAGES.every((stage) => {
+function canResolveStageAccess(
+  config: APIConfig,
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
+): boolean {
+  return getEnabledRequestStages(orchestratorConfig).every((stage) => {
     const stageConfig = resolveStageAPIConfig(config, stage);
     return Boolean(stageConfig.apiKey.trim() && stageConfig.model.trim());
   });
@@ -282,6 +291,7 @@ export function useManga2Novel() {
       writingConstraints: [],
     },
     novelSections: [],
+    finalPolish: { ...DEFAULT_FINAL_POLISH },
     memory: { ...DEFAULT_MEMORY_STATE },
     config: { ...DEFAULT_ORCHESTRATOR_CONFIG },
     creativeSettings: {
@@ -690,14 +700,16 @@ export function useManga2Novel() {
   }, []);
 
 const startProcessing = useCallback(async () => {
-    if (!canResolveStageAccess(apiConfig)) {
+    const enabledStages = getEnabledRequestStages(taskState.config);
+
+    if (!canResolveStageAccess(apiConfig, taskState.config)) {
       throw new Error('请先补全各阶段可用的 API Key 和模型。独立接口阶段可以填自己的 Key / 模型，其余阶段会沿用默认接口。');
     }
-    if (!apiConfig.apiKey && !REQUEST_STAGES.some((stage) => apiConfig.stageAPIOverrides[stage].enabled)) {
+    if (!apiConfig.apiKey && !enabledStages.some((stage) => apiConfig.stageAPIOverrides[stage].enabled)) {
       throw new Error('请先配置 API Key');
     }
-    if (!canResolveModels(apiConfig)) {
-      throw new Error('请至少填写主模型，或为四个阶段分别配置模型');
+    if (!canResolveModels(apiConfig, taskState.config)) {
+      throw new Error('请至少填写主模型，或为各阶段分别配置模型');
     }
 
     setRecoveryNotice(null);
@@ -705,7 +717,7 @@ const startProcessing = useCallback(async () => {
     await orchestrator.prepare(images);
     setImages([...images]);
     await orchestrator.run();
-  }, [apiConfig, images, orchestrator]);
+  }, [apiConfig, images, orchestrator, taskState.config]);
 
   const pause = useCallback(() => {
     orchestrator.pause();
@@ -740,6 +752,29 @@ const startProcessing = useCallback(async () => {
 
   const regenerateSection = useCallback(async (sectionIndex: number) => {
     return orchestrator.regenerateSectionAndPause(sectionIndex);
+  }, [orchestrator]);
+
+  const regenerateFinalPolish = useCallback(async () => {
+    return orchestrator.regenerateFinalPolishAndPause();
+  }, [orchestrator]);
+
+  const updateSceneOutline = useCallback((sceneOutline: ScenePlan[]) => {
+    orchestrator.updateSceneOutline(sceneOutline);
+    const currentState = orchestrator.getState();
+    setTaskState(currentState);
+  }, [orchestrator]);
+
+  const confirmSceneOutline = useCallback(() => {
+    orchestrator.confirmSceneOutline();
+    const currentState = orchestrator.getState();
+    setTaskState(currentState);
+  }, [orchestrator]);
+
+  const confirmSceneOutlineAndResume = useCallback(async () => {
+    setRecoveryNotice(null);
+    orchestrator.confirmSceneOutline();
+    setTaskState(orchestrator.getState());
+    await orchestrator.resume();
   }, [orchestrator]);
 
   const reset = useCallback(() => {
@@ -790,6 +825,10 @@ const startProcessing = useCallback(async () => {
     regenerateChunk,
     regenerateStory,
     regenerateSection,
+    regenerateFinalPolish,
+    updateSceneOutline,
+    confirmSceneOutline,
+    confirmSceneOutlineAndResume,
     dismissRecoveryNotice,
     reset,
     exportNovel,

@@ -156,7 +156,12 @@ async function handleProxy(request, response) {
     response.statusCode = upstreamResponse.status;
 
     upstreamResponse.headers.forEach((value, name) => {
-      if (HOP_BY_HOP_HEADERS.has(name.toLowerCase()) || name.toLowerCase().startsWith('access-control-')) {
+      const lowerName = name.toLowerCase();
+      if (
+        HOP_BY_HOP_HEADERS.has(lowerName)
+        || lowerName === 'content-encoding'
+        || lowerName.startsWith('access-control-')
+      ) {
         return;
       }
 

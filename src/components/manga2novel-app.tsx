@@ -20,6 +20,7 @@ import { ImageUploadPanel } from '@/components/image-upload-panel';
 import { NovelPreview } from '@/components/novel-preview';
 import { OrchestratorConfigPanel } from '@/components/orchestrator-config-panel';
 import { ProgressPanel } from '@/components/progress-panel';
+import { SceneOutlineEditor } from '@/components/scene-outline-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,19 +30,25 @@ import { Separator } from '@/components/ui/separator';
 import { getJSON, setJSON } from '@/lib/crypto-store';
 import { detectLocalProxyStatus, getLocalProxyStatusLabelRange, type LocalProxyStatus } from '@/lib/api-adapter';
 import { getTroubleshootingAdvice } from '@/lib/error-hints';
-import type { APIConfig, LastAIRequest, RequestStage } from '@/lib/types';
-import { REQUEST_STAGES, resolveStageAPIConfig, resolveStageModel } from '@/lib/types';
+import type { APIConfig, LastAIRequest, OrchestratorConfig, RequestStage } from '@/lib/types';
+import { getEnabledRequestStages, resolveStageAPIConfig, resolveStageModel } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useManga2Novel } from '@/hooks/use-manga2novel';
 
 const ADVANCED_SETTINGS_OPEN_STORAGE_KEY = 'advancedSettingsOpen';
 
-function hasResolvedModels(config: APIConfig): boolean {
-  return REQUEST_STAGES.every((stage) => Boolean(resolveStageModel(config, stage)));
+function hasResolvedModels(
+  config: APIConfig,
+  orchestratorConfig: Pick<OrchestratorConfig, 'enableFinalPolish'>
+): boolean {
+  return getEnabledRequestStages(orchestratorConfig).every((stage) => Boolean(resolveStageModel(config, stage)));
 }
 
-function hasResolvedStageAccess(config: APIConfig): boolean {
-  return REQUEST_STAGES.every((stage) => {
+function hasResolvedStageAccess(
+  config: APIConfig,
+  orchestratorConfig: Pick<OrchestratorConfig, 'enableFinalPolish'>
+): boolean {
+  return getEnabledRequestStages(orchestratorConfig).every((stage) => {
     const stageConfig = resolveStageAPIConfig(config, stage);
     return Boolean(stageConfig.apiKey.trim() && stageConfig.model.trim());
   });
@@ -114,6 +121,9 @@ export default function Manga2NovelApp() {
     regenerateChunk,
     regenerateStory,
     regenerateSection,
+    regenerateFinalPolish,
+    updateSceneOutline,
+    confirmSceneOutlineAndResume,
     dismissRecoveryNotice,
     reset,
     exportNovel,
@@ -168,25 +178,38 @@ export default function Manga2NovelApp() {
   const isRunning = taskState.status === 'running' || taskState.status === 'preparing';
   const isPaused = taskState.status === 'paused';
   const isCompleted = taskState.status === 'completed';
-  const hasApiKey = hasResolvedStageAccess(apiConfig);
-  const modelReady = hasResolvedModels(apiConfig);
+  const hasApiKey = hasResolvedStageAccess(apiConfig, taskState.config);
+  const modelReady = hasResolvedModels(apiConfig, taskState.config);
   const hasImages = images.length > 0;
   const canStart = hasApiKey && modelReady && hasImages && !isRunning;
   const lastAIRequest = taskState.lastAIRequest;
   const hasPreviewContent = taskState.novelSections.some((item) => (
     item.status === 'success' && Boolean(item.markdownBody?.trim())
-  ));
+  )) || Boolean(taskState.finalPolish.markdownBody?.trim());
+  const needsOutlineConfirmation = (
+    (taskState.globalSynthesis.status === 'success' || taskState.globalSynthesis.status === 'skipped')
+    && !taskState.globalSynthesis.outlineConfirmed
+  );
   const currentPresetName = useMemo(() => {
     return creativePresets.find((preset) => preset.id === taskState.creativeSettings.presetId)?.name || '自定义';
   }, [creativePresets, taskState.creativeSettings.presetId]);
   const advancedSummary = useMemo(() => {
     return [
       `风格：${currentPresetName}`,
+      `写作模式：${taskState.creativeSettings.writingMode === 'faithful' ? '忠实转写' : '文学改写'}`,
       `逐页分析：${taskState.config.chunkSize === 0 ? '自动' : `每组 ${taskState.config.chunkSize} 张`}`,
       `分块综合：${taskState.config.synthesisChunkCount} 块`,
+      `全书统稿：${taskState.config.enableFinalPolish ? '开' : '关'}`,
       `自动跳过：${taskState.config.autoSkipOnError ? '开' : '关'}`,
     ];
-  }, [currentPresetName, taskState.config.autoSkipOnError, taskState.config.chunkSize, taskState.config.synthesisChunkCount]);
+  }, [
+    currentPresetName,
+    taskState.config.autoSkipOnError,
+    taskState.config.chunkSize,
+    taskState.config.enableFinalPolish,
+    taskState.config.synthesisChunkCount,
+    taskState.creativeSettings.writingMode,
+  ]);
   const mobileStartHint = useMemo(() => {
     if (!hasApiKey) {
       return '还差：补全 API 配置';
@@ -232,6 +255,10 @@ export default function Manga2NovelApp() {
           ? { label: failedSection.title || `第 ${failedSection.index + 1} 节`, error: failedSection.error }
           : null;
       }
+      case 'polish-novel':
+        return taskState.finalPolish.error
+          ? { label: '全书统稿', error: taskState.finalPolish.error }
+          : null;
       default:
         return null;
     }
@@ -239,6 +266,7 @@ export default function Manga2NovelApp() {
     taskState.chunkSyntheses,
     taskState.currentChunkIndex,
     taskState.currentStage,
+    taskState.finalPolish.error,
     taskState.globalSynthesis.error,
     taskState.novelSections,
     taskState.pageAnalyses,
@@ -271,6 +299,11 @@ export default function Manga2NovelApp() {
   };
 
   const handleResume = async () => {
+    if (needsOutlineConfirmation) {
+      toast.error('请先确认 sceneOutline，再继续进入章节写作');
+      return;
+    }
+
     try {
       await resume();
     } catch (error) {
@@ -315,6 +348,11 @@ export default function Manga2NovelApp() {
         case 'write-sections': {
           const sectionNumber = await regenerateSection(itemIndex);
           toast.success(`第 ${sectionNumber} 节已重新生成。后续章节已标记为待更新。`);
+          return;
+        }
+        case 'polish-novel': {
+          await regenerateFinalPolish();
+          toast.success('全书统稿已重新生成。你可以检查结果后再继续。');
           return;
         }
         default:
@@ -489,11 +527,11 @@ export default function Manga2NovelApp() {
 
               {isPaused && (
                 <>
-                  <Button onClick={handleResume}>
+                  <Button onClick={handleResume} disabled={needsOutlineConfirmation}>
                     <Play className="mr-1 h-4 w-4" />
                     继续
                   </Button>
-                  <Button variant="outline" onClick={handleSkip}>
+                  <Button variant="outline" onClick={handleSkip} disabled={needsOutlineConfirmation}>
                     <SkipForward className="mr-1 h-4 w-4" />
                     跳过
                   </Button>
@@ -592,6 +630,15 @@ export default function Manga2NovelApp() {
                       ) : null}
                     </CardContent>
                   </Card>
+                ) : null}
+                {needsOutlineConfirmation ? (
+                  <SceneOutlineEditor
+                    sceneOutline={taskState.globalSynthesis.sceneOutline}
+                    chunkSyntheses={taskState.chunkSyntheses}
+                    disabled={isRunning}
+                    onSave={updateSceneOutline}
+                    onConfirmAndContinue={confirmSceneOutlineAndResume}
+                  />
                 ) : null}
                 <ProgressPanel taskState={taskState} onRegenerateItem={handleRegenerateItem} />
               </div>
