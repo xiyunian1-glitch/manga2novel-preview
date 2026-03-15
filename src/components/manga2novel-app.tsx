@@ -96,12 +96,17 @@ export default function Manga2NovelApp() {
   const [proxyStatusChecking, setProxyStatusChecking] = useState(false);
   const {
     apiConfig,
+    apiProfiles,
+    activeApiProfileId,
     creativePresets,
     images,
     taskState,
     configLoaded,
     recoveryNotice,
     saveApiConfig,
+    selectApiProfile,
+    duplicateApiProfile,
+    deleteApiProfile,
     saveCreativePreset,
     deleteCreativePreset,
     saveOrchestratorConfig,
@@ -553,7 +558,7 @@ export default function Manga2NovelApp() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 pb-28 lg:pb-6">
+      <main className="mx-auto max-w-7xl px-4 py-4 pb-28 lg:pb-6">
         {recoveryNotice ? (
           <Card
             className={cn(
@@ -590,10 +595,15 @@ export default function Manga2NovelApp() {
             hasPreviewContent && 'xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]'
           )}
         >
-          <div className="space-y-6">
+          <div className="space-y-5">
             <APIConfigPanel
               config={apiConfig}
+              profiles={apiProfiles}
+              activeProfileId={activeApiProfileId}
               onSave={saveApiConfig}
+              onSelectProfile={selectApiProfile}
+              onDuplicateProfile={duplicateApiProfile}
+              onDeleteProfile={deleteApiProfile}
               onFetchModels={fetchModels}
               disabled={isRunning}
             />

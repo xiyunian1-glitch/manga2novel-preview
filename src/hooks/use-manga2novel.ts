@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   APIConfig,
+  APIProfileSummary,
   CreativePreset,
   CreativeSettings,
   ImageItem,
@@ -58,6 +59,18 @@ import {
 
 let idCounter = 0;
 const CREATIVE_SETTINGS_TEMPLATE_VERSION = 6;
+const API_PROFILES_STORAGE_KEY = 'apiProfiles';
+const ACTIVE_API_PROFILE_ID_STORAGE_KEY = 'activeApiProfileId';
+const DEFAULT_API_PROFILE_NAME = '默认配置';
+
+interface StoredAPIProfile extends APIProfileSummary {
+  provider: APIConfig['provider'];
+  providerLabel?: string;
+  model: string;
+  baseUrl?: string;
+  stageModels: APIConfig['stageModels'];
+  stageAPIOverrides: Record<RequestStage, Omit<StageAPIOverrideConfig, 'apiKey'>>;
+}
 
 function resolvePresetIdFromPresets(systemPrompt: string, presets: CreativePreset[]): string {
   const builtinPresetId = resolveCreativePresetId(systemPrompt);
@@ -130,7 +143,7 @@ function normalizeStageAPIOverride(
 }
 
 function normalizeStageAPIOverrides(
-  overrides: Partial<StageAPIOverrideMap> | null | undefined,
+  overrides: Partial<Record<RequestStage, Partial<StageAPIOverrideConfig>>> | null | undefined,
   stageApiKeys?: Partial<Record<RequestStage, string>>
 ): StageAPIOverrideMap {
   return REQUEST_STAGES.reduce((result, stage) => {
@@ -164,6 +177,196 @@ function extractStageApiKeys(overrides: StageAPIOverrideMap): Partial<Record<Req
     }
     return result;
   }, {} as Partial<Record<RequestStage, string>>);
+}
+
+function normalizeStageModels(stageModels: Partial<APIConfig['stageModels']> | null | undefined): APIConfig['stageModels'] {
+  return REQUEST_STAGES.reduce((result, stage) => {
+    result[stage] = stageModels?.[stage]?.trim() || '';
+    return result;
+  }, { ...DEFAULT_STAGE_MODELS });
+}
+
+function normalizeApiConfig(config: APIConfig): APIConfig {
+  return {
+    provider: config.provider,
+    providerLabel: normalizeProviderLabel(config),
+    apiKey: config.apiKey.trim(),
+    model: config.model.trim(),
+    baseUrl: config.baseUrl?.trim() || '',
+    stageModels: normalizeStageModels(config.stageModels),
+    stageAPIOverrides: normalizeStageAPIOverrides(config.stageAPIOverrides),
+  };
+}
+
+function createEmptyApiConfig(): APIConfig {
+  return {
+    provider: 'compatible',
+    providerLabel: PROVIDER_DISPLAY_NAMES.compatible,
+    apiKey: '',
+    model: '',
+    baseUrl: DEFAULT_COMPATIBLE_BASE_URL,
+    stageModels: { ...DEFAULT_STAGE_MODELS },
+    stageAPIOverrides: { ...DEFAULT_STAGE_API_OVERRIDES },
+  };
+}
+
+function createApiProfileId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getProfileApiKeyStorageKey(profileId: string): string {
+  return `apiKey_profile_${profileId}`;
+}
+
+function getProfileStageApiKeysStorageKey(profileId: string): string {
+  return `stageApiKeys_profile_${profileId}`;
+}
+
+function buildStoredApiProfile(
+  profileId: string,
+  profileName: string,
+  config: APIConfig,
+  updatedAt = new Date().toISOString()
+): StoredAPIProfile {
+  const normalizedConfig = normalizeApiConfig(config);
+
+  return {
+    id: profileId,
+    name: profileName.trim() || DEFAULT_API_PROFILE_NAME,
+    updatedAt,
+    provider: normalizedConfig.provider,
+    providerLabel: normalizedConfig.providerLabel || PROVIDER_DISPLAY_NAMES[normalizedConfig.provider],
+    model: normalizedConfig.model,
+    baseUrl: normalizedConfig.baseUrl || '',
+    stageModels: normalizedConfig.stageModels,
+    stageAPIOverrides: serializeStageAPIOverrides(normalizedConfig.stageAPIOverrides),
+  };
+}
+
+function normalizeStoredApiProfile(profile: Partial<StoredAPIProfile> | null | undefined): StoredAPIProfile {
+  const provider = normalizeProvider(profile?.provider);
+  const normalizedConfig = normalizeApiConfig({
+    provider,
+    providerLabel: profile?.providerLabel || PROVIDER_DISPLAY_NAMES[provider],
+    apiKey: '',
+    model: profile?.model || '',
+    baseUrl: normalizeBaseUrl(provider, profile?.baseUrl),
+    stageModels: { ...DEFAULT_STAGE_MODELS, ...(profile?.stageModels || {}) },
+    stageAPIOverrides: normalizeStageAPIOverrides(profile?.stageAPIOverrides as Partial<StageAPIOverrideMap> | undefined),
+  });
+
+  return buildStoredApiProfile(
+    profile?.id || createApiProfileId(),
+    profile?.name || DEFAULT_API_PROFILE_NAME,
+    normalizedConfig,
+    profile?.updatedAt || new Date().toISOString()
+  );
+}
+
+function parseStageApiKeys(raw: string | null): Partial<Record<RequestStage, string>> | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(raw) as Partial<Record<RequestStage, string>>;
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadApiConfigFromProfile(profile: StoredAPIProfile): Promise<APIConfig> {
+  const [savedKey, savedStageApiKeysRaw] = await Promise.all([
+    secureGet(getProfileApiKeyStorageKey(profile.id)),
+    secureGet(getProfileStageApiKeysStorageKey(profile.id)),
+  ]);
+
+  return normalizeApiConfig({
+    provider: profile.provider,
+    providerLabel: profile.providerLabel || PROVIDER_DISPLAY_NAMES[profile.provider],
+    apiKey: savedKey || '',
+    model: profile.model,
+    baseUrl: profile.baseUrl || '',
+    stageModels: profile.stageModels,
+    stageAPIOverrides: normalizeStageAPIOverrides(profile.stageAPIOverrides, parseStageApiKeys(savedStageApiKeysRaw)),
+  });
+}
+
+async function persistApiConfigSecrets(profileId: string, config: APIConfig): Promise<void> {
+  const normalizedConfig = normalizeApiConfig(config);
+  const stageApiKeys = extractStageApiKeys(normalizedConfig.stageAPIOverrides);
+
+  if (normalizedConfig.apiKey) {
+    await secureSet(getProfileApiKeyStorageKey(profileId), normalizedConfig.apiKey);
+  } else {
+    secureRemove(getProfileApiKeyStorageKey(profileId));
+  }
+
+  if (Object.keys(stageApiKeys).length > 0) {
+    await secureSet(getProfileStageApiKeysStorageKey(profileId), JSON.stringify(stageApiKeys));
+  } else {
+    secureRemove(getProfileStageApiKeysStorageKey(profileId));
+  }
+}
+
+async function syncLegacyActiveApiConfig(config: APIConfig): Promise<void> {
+  const normalizedConfig = normalizeApiConfig(config);
+  const stageApiKeys = extractStageApiKeys(normalizedConfig.stageAPIOverrides);
+
+  if (normalizedConfig.apiKey) {
+    await secureSet('apiKey', normalizedConfig.apiKey);
+  } else {
+    secureRemove('apiKey');
+  }
+
+  if (Object.keys(stageApiKeys).length > 0) {
+    await secureSet('stageApiKeys', JSON.stringify(stageApiKeys));
+  } else {
+    secureRemove('stageApiKeys');
+  }
+
+  setJSON('provider', normalizedConfig.provider);
+  setJSON('providerLabel', normalizedConfig.providerLabel || '');
+  setJSON('model', normalizedConfig.model);
+  setJSON('baseUrl', normalizedConfig.baseUrl || '');
+  setJSON('stageModels', normalizedConfig.stageModels);
+  setJSON('stageAPIOverrides', serializeStageAPIOverrides(normalizedConfig.stageAPIOverrides));
+}
+
+function createProfileSummary(profile: StoredAPIProfile): APIProfileSummary {
+  return {
+    id: profile.id,
+    name: profile.name,
+    updatedAt: profile.updatedAt,
+  };
+}
+
+function ensureUniqueProfileName(
+  desiredName: string,
+  profiles: StoredAPIProfile[],
+  excludeProfileId?: string
+): string {
+  const baseName = desiredName.trim() || DEFAULT_API_PROFILE_NAME;
+  const takenNames = new Set(
+    profiles
+      .filter((profile) => profile.id !== excludeProfileId)
+      .map((profile) => profile.name.trim())
+  );
+
+  if (!takenNames.has(baseName)) {
+    return baseName;
+  }
+
+  let suffix = 2;
+  while (takenNames.has(`${baseName} ${suffix}`)) {
+    suffix += 1;
+  }
+
+  return `${baseName} ${suffix}`;
 }
 
 function canResolveStageAccess(
@@ -268,15 +471,9 @@ export function useManga2Novel() {
 
   const orchestrator = orchestratorRef.current;
 
-  const [apiConfig, setApiConfigState] = useState<APIConfig>({
-    provider: 'compatible',
-    providerLabel: PROVIDER_DISPLAY_NAMES.compatible,
-    apiKey: '',
-    model: '',
-    baseUrl: DEFAULT_COMPATIBLE_BASE_URL,
-    stageModels: { ...DEFAULT_STAGE_MODELS },
-    stageAPIOverrides: { ...DEFAULT_STAGE_API_OVERRIDES },
-  });
+  const [apiConfig, setApiConfigState] = useState<APIConfig>(createEmptyApiConfig);
+  const [apiProfiles, setApiProfiles] = useState<StoredAPIProfile[]>([]);
+  const [activeApiProfileId, setActiveApiProfileIdState] = useState('');
   const [images, setImages] = useState<ImageItem[]>([]);
   const [creativePresets, setCreativePresets] = useState<CreativePreset[]>(CREATIVE_PRESETS);
   const [taskState, setTaskState] = useState<TaskState>({
@@ -309,50 +506,73 @@ export function useManga2Novel() {
 
   useEffect(() => {
     (async () => {
-      const savedKey = await secureGet('apiKey');
-      const savedStageApiKeysRaw = await secureGet('stageApiKeys');
-      const savedProvider = getJSON<APIConfig['provider']>('provider');
-      const savedProviderLabel = getJSON<string>('providerLabel');
-      const savedModel = getJSON<string>('model');
-      const savedBaseUrl = getJSON<string>('baseUrl');
-      const savedStageModels = getJSON<APIConfig['stageModels']>('stageModels');
-      const savedStageAPIOverrides = getJSON<Partial<StageAPIOverrideMap>>('stageAPIOverrides');
       const savedOrcConfig = getJSON<OrchestratorConfig>('orchestratorConfig');
       const savedCreativeSettings = getJSON<CreativeSettings>('creativeSettings');
       const savedCreativeSettingsTemplateVersion = getJSON<number>('creativeSettingsTemplateVersion');
       const savedCreativePresets = getJSON<CreativePreset[]>('creativePresets');
-      const savedStageApiKeys = (() => {
-        if (!savedStageApiKeysRaw) {
-          return undefined;
-        }
-
-        try {
-          return JSON.parse(savedStageApiKeysRaw) as Partial<Record<RequestStage, string>>;
-        } catch {
-          return undefined;
-        }
-      })();
 
       const nextPresets = [
         ...CREATIVE_PRESETS,
         ...(savedCreativePresets?.filter((preset) => !CREATIVE_PRESETS.some((builtin) => builtin.id === preset.id)) || []),
       ];
 
-      const nextProvider = normalizeProvider(savedProvider as APIConfig['provider'] | 'openrouter' | null | undefined);
-      const nextApiConfig: APIConfig = {
-        provider: nextProvider,
-        providerLabel: normalizeProviderLabel({
+      const storedProfiles = (getJSON<StoredAPIProfile[]>(API_PROFILES_STORAGE_KEY) || []).map((profile) => (
+        normalizeStoredApiProfile(profile)
+      ));
+      const savedActiveProfileId = getJSON<string>(ACTIVE_API_PROFILE_ID_STORAGE_KEY);
+      let nextProfiles = storedProfiles;
+      let nextActiveProfileId = savedActiveProfileId || storedProfiles[0]?.id || '';
+      let nextApiConfig = createEmptyApiConfig();
+
+      if (nextProfiles.length === 0) {
+        const [savedKey, savedStageApiKeysRaw] = await Promise.all([
+          secureGet('apiKey'),
+          secureGet('stageApiKeys'),
+        ]);
+        const savedProvider = getJSON<APIConfig['provider']>('provider');
+        const savedProviderLabel = getJSON<string>('providerLabel');
+        const savedModel = getJSON<string>('model');
+        const savedBaseUrl = getJSON<string>('baseUrl');
+        const savedStageModels = getJSON<APIConfig['stageModels']>('stageModels');
+        const savedStageAPIOverrides = getJSON<Partial<StageAPIOverrideMap>>('stageAPIOverrides');
+        const nextProvider = normalizeProvider(savedProvider as APIConfig['provider'] | 'openrouter' | null | undefined);
+        const legacyConfig = normalizeApiConfig({
           provider: nextProvider,
-          providerLabel: savedProviderLabel || '',
-        }),
-        apiKey: savedKey || '',
-        model: savedModel || '',
-        baseUrl: normalizeBaseUrl(nextProvider, savedBaseUrl, savedProvider as APIConfig['provider'] | 'openrouter' | null | undefined),
-        stageModels: { ...DEFAULT_STAGE_MODELS, ...(savedStageModels || {}) },
-        stageAPIOverrides: normalizeStageAPIOverrides(savedStageAPIOverrides, savedStageApiKeys),
-      };
+          providerLabel: normalizeProviderLabel({
+            provider: nextProvider,
+            providerLabel: savedProviderLabel || '',
+          }),
+          apiKey: savedKey || '',
+          model: savedModel || '',
+          baseUrl: normalizeBaseUrl(
+            nextProvider,
+            savedBaseUrl,
+            savedProvider as APIConfig['provider'] | 'openrouter' | null | undefined
+          ),
+          stageModels: { ...DEFAULT_STAGE_MODELS, ...(savedStageModels || {}) },
+          stageAPIOverrides: normalizeStageAPIOverrides(savedStageAPIOverrides, parseStageApiKeys(savedStageApiKeysRaw)),
+        });
+
+        const defaultProfile = buildStoredApiProfile(createApiProfileId(), DEFAULT_API_PROFILE_NAME, legacyConfig);
+        nextProfiles = [defaultProfile];
+        nextActiveProfileId = defaultProfile.id;
+        nextApiConfig = legacyConfig;
+
+        setJSON(API_PROFILES_STORAGE_KEY, nextProfiles);
+        setJSON(ACTIVE_API_PROFILE_ID_STORAGE_KEY, nextActiveProfileId);
+        await persistApiConfigSecrets(defaultProfile.id, legacyConfig);
+      } else {
+        const activeProfile = nextProfiles.find((profile) => profile.id === nextActiveProfileId) || nextProfiles[0];
+        nextActiveProfileId = activeProfile.id;
+        nextApiConfig = await loadApiConfigFromProfile(activeProfile);
+
+        setJSON(API_PROFILES_STORAGE_KEY, nextProfiles);
+        setJSON(ACTIVE_API_PROFILE_ID_STORAGE_KEY, nextActiveProfileId);
+      }
 
       setApiConfigState(nextApiConfig);
+      setApiProfiles(nextProfiles);
+      setActiveApiProfileIdState(nextActiveProfileId);
       setCreativePresets(nextPresets);
 
       if (savedOrcConfig) {
@@ -378,6 +598,7 @@ export function useManga2Novel() {
       }
 
       nextCreativeSettings.presetId = resolvePresetIdFromPresets(nextCreativeSettings.systemPrompt, nextPresets);
+      await syncLegacyActiveApiConfig(nextApiConfig);
       orchestrator.setAPIConfig(nextApiConfig);
       orchestrator.updateCreativeSettings(nextCreativeSettings);
 
@@ -522,41 +743,101 @@ export function useManga2Novel() {
     };
   }, [images.length, taskState, workspaceLoaded]);
 
-  const saveApiConfig = useCallback(async (config: APIConfig) => {
-    const normalizedConfig: APIConfig = {
-      provider: config.provider,
-      providerLabel: normalizeProviderLabel(config),
-      apiKey: config.apiKey.trim(),
-      model: config.model.trim(),
-      baseUrl: config.baseUrl?.trim() || '',
-      stageModels: REQUEST_STAGES.reduce((result, stage) => {
-        result[stage] = config.stageModels[stage]?.trim() || '';
-        return result;
-      }, { ...DEFAULT_STAGE_MODELS }),
-      stageAPIOverrides: normalizeStageAPIOverrides(config.stageAPIOverrides),
-    };
-    const stageApiKeys = extractStageApiKeys(normalizedConfig.stageAPIOverrides);
+  const saveApiConfig = useCallback(async (
+    config: APIConfig,
+    options?: { profileName?: string }
+  ) => {
+    const normalizedConfig = normalizeApiConfig(config);
+    const fallbackProfile = buildStoredApiProfile(createApiProfileId(), DEFAULT_API_PROFILE_NAME, normalizedConfig);
+    const currentProfile = apiProfiles.find((profile) => profile.id === activeApiProfileId) || fallbackProfile;
+    const nextProfile = buildStoredApiProfile(
+      currentProfile.id,
+      ensureUniqueProfileName(options?.profileName || currentProfile.name, apiProfiles, currentProfile.id),
+      normalizedConfig
+    );
+    const nextProfiles = apiProfiles.some((profile) => profile.id === currentProfile.id)
+      ? apiProfiles.map((profile) => (profile.id === currentProfile.id ? nextProfile : profile))
+      : [...apiProfiles, nextProfile];
 
     setApiConfigState(normalizedConfig);
-    if (normalizedConfig.apiKey) {
-      await secureSet('apiKey', normalizedConfig.apiKey);
-    } else {
-      secureRemove('apiKey');
-    }
-    if (Object.keys(stageApiKeys).length > 0) {
-      await secureSet('stageApiKeys', JSON.stringify(stageApiKeys));
-    } else {
-      secureRemove('stageApiKeys');
+    setApiProfiles(nextProfiles);
+    setActiveApiProfileIdState(nextProfile.id);
+    setJSON(API_PROFILES_STORAGE_KEY, nextProfiles);
+    setJSON(ACTIVE_API_PROFILE_ID_STORAGE_KEY, nextProfile.id);
+    await persistApiConfigSecrets(nextProfile.id, normalizedConfig);
+    await syncLegacyActiveApiConfig(normalizedConfig);
+    orchestrator.setAPIConfig(normalizedConfig);
+  }, [activeApiProfileId, apiProfiles, orchestrator]);
+
+  const selectApiProfile = useCallback(async (profileId: string) => {
+    const nextProfile = apiProfiles.find((profile) => profile.id === profileId);
+    if (!nextProfile) {
+      throw new Error('未找到要切换的 API 配置档');
     }
 
-    setJSON('provider', normalizedConfig.provider);
-    setJSON('providerLabel', normalizedConfig.providerLabel || '');
-    setJSON('model', normalizedConfig.model);
-    setJSON('baseUrl', normalizedConfig.baseUrl || '');
-    setJSON('stageModels', normalizedConfig.stageModels);
-    setJSON('stageAPIOverrides', serializeStageAPIOverrides(normalizedConfig.stageAPIOverrides));
+    const nextConfig = await loadApiConfigFromProfile(nextProfile);
+    setApiConfigState(nextConfig);
+    setActiveApiProfileIdState(nextProfile.id);
+    setJSON(ACTIVE_API_PROFILE_ID_STORAGE_KEY, nextProfile.id);
+    await syncLegacyActiveApiConfig(nextConfig);
+    orchestrator.setAPIConfig(nextConfig);
+  }, [apiProfiles, orchestrator]);
+
+  const duplicateApiProfile = useCallback(async (
+    config: APIConfig,
+    profileName?: string
+  ) => {
+    const normalizedConfig = normalizeApiConfig(config);
+    const nextProfileId = createApiProfileId();
+    const nextProfile = buildStoredApiProfile(
+      nextProfileId,
+      ensureUniqueProfileName(profileName || `${DEFAULT_API_PROFILE_NAME} 副本`, apiProfiles),
+      normalizedConfig
+    );
+    const nextProfiles = [...apiProfiles, nextProfile];
+
+    setApiProfiles(nextProfiles);
+    setApiConfigState(normalizedConfig);
+    setActiveApiProfileIdState(nextProfileId);
+    setJSON(API_PROFILES_STORAGE_KEY, nextProfiles);
+    setJSON(ACTIVE_API_PROFILE_ID_STORAGE_KEY, nextProfileId);
+    await persistApiConfigSecrets(nextProfileId, normalizedConfig);
+    await syncLegacyActiveApiConfig(normalizedConfig);
     orchestrator.setAPIConfig(normalizedConfig);
-  }, [orchestrator]);
+  }, [apiProfiles, orchestrator]);
+
+  const deleteApiProfile = useCallback(async (profileId: string) => {
+    if (apiProfiles.length <= 1) {
+      throw new Error('至少保留一个 API 配置档');
+    }
+
+    const remainingProfiles = apiProfiles.filter((profile) => profile.id !== profileId);
+    const nextActiveProfile = profileId === activeApiProfileId
+      ? remainingProfiles[0]
+      : remainingProfiles.find((profile) => profile.id === activeApiProfileId) || remainingProfiles[0];
+
+    setApiProfiles(remainingProfiles);
+    setJSON(API_PROFILES_STORAGE_KEY, remainingProfiles);
+    secureRemove(getProfileApiKeyStorageKey(profileId));
+    secureRemove(getProfileStageApiKeysStorageKey(profileId));
+
+    if (!nextActiveProfile) {
+      return;
+    }
+
+    const nextConfig = profileId === activeApiProfileId
+      ? await loadApiConfigFromProfile(nextActiveProfile)
+      : apiConfig;
+
+    setActiveApiProfileIdState(nextActiveProfile.id);
+    setJSON(ACTIVE_API_PROFILE_ID_STORAGE_KEY, nextActiveProfile.id);
+
+    if (profileId === activeApiProfileId) {
+      setApiConfigState(nextConfig);
+      await syncLegacyActiveApiConfig(nextConfig);
+      orchestrator.setAPIConfig(nextConfig);
+    }
+  }, [activeApiProfileId, apiConfig, apiProfiles, orchestrator]);
 
   const saveOrchestratorConfig = useCallback((config: Partial<OrchestratorConfig>) => {
     orchestrator.updateConfig(config);
@@ -800,12 +1081,17 @@ const startProcessing = useCallback(async () => {
 
   return {
     apiConfig,
+    apiProfiles: apiProfiles.map(createProfileSummary),
+    activeApiProfileId,
     creativePresets,
     images,
     taskState,
     configLoaded,
     recoveryNotice,
     saveApiConfig,
+    selectApiProfile,
+    duplicateApiProfile,
+    deleteApiProfile,
     saveCreativePreset,
     deleteCreativePreset,
     saveOrchestratorConfig,

@@ -41,6 +41,12 @@ export interface APIConfig {
   stageAPIOverrides: StageAPIOverrideMap;
 }
 
+export interface APIProfileSummary {
+  id: string;
+  name: string;
+  updatedAt: string;
+}
+
 export interface CreativeSettings {
   presetId: string;
   systemPrompt: string;
