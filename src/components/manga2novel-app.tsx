@@ -629,6 +629,12 @@ export default function Manga2NovelApp() {
                       </div>
                       {currentFailureAdvice ? (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                          <Badge
+                            variant="outline"
+                            className="border-amber-300 bg-amber-100/80 text-[11px] text-amber-900"
+                          >
+                            {currentFailureAdvice.categoryLabel}
+                          </Badge>
                           <div className="font-medium">{currentFailureAdvice.title}</div>
                           <div className="mt-1">{currentFailureAdvice.summary}</div>
                           <div className="mt-2 space-y-1">

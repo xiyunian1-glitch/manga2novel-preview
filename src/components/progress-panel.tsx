@@ -56,6 +56,11 @@ type StagePreview = {
   items: ActiveItem[];
 };
 
+type StatusPresentation = {
+  compactLabel: string;
+  secondaryLabel?: string;
+};
+
 function ChunkStatusIcon({ status }: { status: ChunkStatus }) {
   switch (status) {
     case 'success':
@@ -111,6 +116,56 @@ function buildSkippedFallbackNotice(stage: RequestStage): string | null {
     default:
       return null;
   }
+}
+
+function buildDualStateNotice(stage: RequestStage): string | null {
+  switch (stage) {
+    case 'synthesize-chunks':
+      return '双状态：本阶段失败；流程已改用兜底分块综合继续。当前内容不是本阶段模型成功返回。';
+    case 'synthesize-story':
+      return '双状态：本阶段失败；流程已改用兜底整书综合继续。当前内容不是本阶段模型成功返回。';
+    case 'polish-novel':
+      return '双状态：本阶段已跳过；当前正文沿用章节写作结果。当前内容不是全书统稿模型输出。';
+    default:
+      return null;
+  }
+}
+
+function getStatusPresentation(
+  status: ChunkStatus,
+  options?: {
+    stage?: RequestStage;
+    hasFallbackContent?: boolean;
+  }
+): StatusPresentation {
+  const compactLabel = status === 'skipped' ? '已跳过' : statusLabel(status, options);
+
+  if (status !== 'skipped') {
+    return { compactLabel };
+  }
+
+  if (options?.stage === 'synthesize-chunks') {
+    return {
+      compactLabel,
+      secondaryLabel: '本阶段失败，已用兜底分块综合继续',
+    };
+  }
+
+  if (options?.stage === 'synthesize-story' || options?.hasFallbackContent) {
+    return {
+      compactLabel,
+      secondaryLabel: '本阶段失败，已用兜底整书综合继续',
+    };
+  }
+
+  if (options?.stage === 'polish-novel') {
+    return {
+      compactLabel,
+      secondaryLabel: '本阶段已跳过，当前正文沿用章节写作结果',
+    };
+  }
+
+  return { compactLabel };
 }
 
 function stageLabel(stage: PipelineStage): string {
@@ -236,7 +291,7 @@ function buildPageDetail(page: PageAnalysis): string {
 
 function buildChunkPreview(chunk: TaskState['chunkSyntheses'][number]): string {
   const skippedNotice = chunk.status === 'skipped'
-    ? buildSkippedFallbackNotice('synthesize-chunks')
+    ? buildDualStateNotice('synthesize-chunks')
     : null;
 
   return [
@@ -249,7 +304,7 @@ function buildChunkPreview(chunk: TaskState['chunkSyntheses'][number]): string {
 
 function buildChunkDetail(chunk: TaskState['chunkSyntheses'][number]): string {
   const skippedNotice = chunk.status === 'skipped'
-    ? buildSkippedFallbackNotice('synthesize-chunks')
+    ? buildDualStateNotice('synthesize-chunks')
     : null;
 
   return [
@@ -268,7 +323,7 @@ function buildStoryPreview(taskState: TaskState): string {
     .map((scene) => `- ${scene.title}（分块 ${scene.chunkIndexes.map((index) => index + 1).join('、')}）`)
     .join('\n');
   const skippedNotice = taskState.globalSynthesis.status === 'skipped'
-    ? buildSkippedFallbackNotice('synthesize-story')
+    ? buildDualStateNotice('synthesize-story')
     : null;
 
   return [
@@ -286,7 +341,7 @@ function buildStoryDetail(taskState: TaskState): string {
       )).join('\n')
     : '无';
   const skippedNotice = taskState.globalSynthesis.status === 'skipped'
-    ? buildSkippedFallbackNotice('synthesize-story')
+    ? buildDualStateNotice('synthesize-story')
     : null;
 
   return [
@@ -303,7 +358,7 @@ function buildStoryDetail(taskState: TaskState): string {
 
 function buildFinalPolishPreview(taskState: TaskState): string {
   const skippedNotice = taskState.finalPolish.status === 'skipped'
-    ? buildSkippedFallbackNotice('polish-novel')
+    ? buildDualStateNotice('polish-novel')
     : null;
 
   return [
@@ -314,7 +369,7 @@ function buildFinalPolishPreview(taskState: TaskState): string {
 
 function buildFinalPolishDetail(taskState: TaskState): string {
   const skippedNotice = taskState.finalPolish.status === 'skipped'
-    ? buildSkippedFallbackNotice('polish-novel')
+    ? buildDualStateNotice('polish-novel')
     : null;
 
   return [
@@ -341,7 +396,8 @@ function buildSectionDetail(section: TaskState['novelSections'][number]): string
 }
 
 function buildTroubleshootingSummary(error?: string): string {
-  return getTroubleshootingAdvice(error)?.summary || '';
+  const advice = getTroubleshootingAdvice(error);
+  return advice ? `${advice.categoryLabel}：${advice.summary}` : '';
 }
 
 function getReplayActionCopy(stage: RequestStage): { buttonLabel: string; description: string } {
@@ -616,7 +672,29 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
     return null;
   })();
 
-  const stageCards: Array<{ stage: RequestStage; title: string; value: string; hint: string }> = [
+  const getItemStatusPresentation = (item: ActiveItem): StatusPresentation => {
+    const hasFallbackContent = item.stage === 'synthesize-story'
+      ? Boolean(taskState.globalSynthesis.storyOverview?.trim())
+      : item.stage === 'polish-novel'
+        ? Boolean((taskState.finalPolish.markdownBody || taskState.fullNovel || '').trim())
+        : false;
+
+    return getStatusPresentation(item.status, {
+      stage: item.stage,
+      hasFallbackContent,
+    });
+  };
+
+  const globalSynthesisStatus = getStatusPresentation(taskState.globalSynthesis.status, {
+    stage: 'synthesize-story',
+    hasFallbackContent: Boolean(taskState.globalSynthesis.storyOverview?.trim()),
+  });
+  const finalPolishStatus = getStatusPresentation(taskState.finalPolish.status, {
+    stage: 'polish-novel',
+    hasFallbackContent: Boolean((taskState.finalPolish.markdownBody || taskState.fullNovel || '').trim()),
+  });
+
+  const stageCards: Array<{ stage: RequestStage; title: string; value: string; hint: string; secondary?: string }> = [
     {
       stage: 'analyze-pages',
       title: '逐页分析',
@@ -632,10 +710,8 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
     {
       stage: 'synthesize-story',
       title: '整书综合',
-      value: statusLabel(taskState.globalSynthesis.status, {
-        stage: 'synthesize-story',
-        hasFallbackContent: Boolean(taskState.globalSynthesis.storyOverview),
-      }),
+      value: globalSynthesisStatus.compactLabel,
+      secondary: globalSynthesisStatus.secondaryLabel,
       hint: '点击查看全书预览',
     },
     {
@@ -647,7 +723,8 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
     ...(taskState.config.enableFinalPolish ? [{
       stage: 'polish-novel' as const,
       title: '全书统稿',
-      value: statusLabel(taskState.finalPolish.status, { stage: 'polish-novel' }),
+      value: finalPolishStatus.compactLabel,
+      secondary: finalPolishStatus.secondaryLabel,
       hint: '点击查看最终稿预览',
     }] : []),
   ];
@@ -656,6 +733,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   const activeErrorAdvice = activeErrorItem?.error ? getTroubleshootingAdvice(activeErrorItem.error) : null;
   const selectedStagePreview = selectedStage ? buildStagePreview(taskState, selectedStage) : null;
   const selectedItemAdvice = selectedItem?.error ? getTroubleshootingAdvice(selectedItem.error) : null;
+  const selectedItemStatusPresentation = selectedItem ? getItemStatusPresentation(selectedItem) : null;
   const canRegenerateSelectedItem = canRegenerateItem(selectedItem, taskState.status, onRegenerateItem);
   const selectedItemReplayAction = selectedItem ? getReplayActionCopy(selectedItem.stage) : null;
   const summaryTitle = taskState.globalSynthesis.storyOverview ? '全书概览' : (
@@ -789,6 +867,11 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
               >
                 <div className="text-muted-foreground">{card.title}</div>
                 <div className="mt-1 font-medium">{card.value}</div>
+                {card.secondary ? (
+                  <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-amber-700">
+                    {card.secondary}
+                  </div>
+                ) : null}
                 <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                   <Eye className="h-3 w-3" />
                   {card.hint}
@@ -803,6 +886,12 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
               <div className="mt-1 break-words">{activeErrorItem.error}</div>
               {activeErrorAdvice ? (
                 <div className="mt-2 space-y-1 text-amber-700">
+                  <Badge
+                    variant="outline"
+                    className="border-amber-300 bg-amber-100/80 text-[11px] text-amber-900"
+                  >
+                    {activeErrorAdvice.categoryLabel}
+                  </Badge>
                   <div className="font-medium">{activeErrorAdvice.title}</div>
                   <div>{activeErrorAdvice.summary}</div>
                   <div className="space-y-1">
@@ -818,8 +907,11 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
           {activeItems.length > 0 ? (
             <div className="max-h-[280px] overflow-y-auto overscroll-contain pr-2">
               <div className="space-y-1.5">
-                {activeItems.map((item) => (
-                  <button
+                {activeItems.map((item) => {
+                  const statusPresentation = getItemStatusPresentation(item);
+
+                  return (
+                    <button
                     key={item.key}
                     type="button"
                     onClick={() => openItemDetail(item)}
@@ -833,7 +925,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                       <ChunkStatusIcon status={item.status} />
                       <span className="truncate">{item.label}</span>
                       <Badge variant="outline" className="ml-auto text-xs">
-                        {statusLabel(item.status, { stage: item.stage })}
+                        {statusPresentation.compactLabel}
                       </Badge>
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
@@ -843,6 +935,11 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                         点击查看
                       </span>
                     </div>
+                    {statusPresentation.secondaryLabel ? (
+                      <div className="mt-1 text-xs text-amber-700">
+                        {statusPresentation.secondaryLabel}
+                      </div>
+                    ) : null}
                     {item.error ? (
                       <div className="mt-1 space-y-1 text-xs">
                         <div className="truncate text-red-500" title={item.error}>
@@ -855,8 +952,9 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                         ) : null}
                       </div>
                     ) : null}
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -900,8 +998,11 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
           {selectedStagePreview && selectedStagePreview.items.length > 0 ? (
             <ScrollArea className="h-[65vh] pr-4">
               <div className="space-y-3">
-                {selectedStagePreview.items.map((item) => (
-                  <div
+                {selectedStagePreview.items.map((item) => {
+                  const statusPresentation = getItemStatusPresentation(item);
+
+                  return (
+                    <div
                     key={item.key}
                     className={`w-full rounded-lg border p-3 text-left transition-colors ${
                       item.status === 'processing' && taskState.status === 'running'
@@ -913,10 +1014,15 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                       <ChunkStatusIcon status={item.status} />
                       <span className="truncate text-sm font-medium">{item.label}</span>
                       <Badge variant="outline" className="ml-auto text-xs">
-                        {statusLabel(item.status, { stage: item.stage })}
+                        {statusPresentation.compactLabel}
                       </Badge>
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">{item.meta}</div>
+                    {statusPresentation.secondaryLabel ? (
+                      <div className="mt-1 text-xs text-amber-700">
+                        {statusPresentation.secondaryLabel}
+                      </div>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         type="button"
@@ -961,8 +1067,9 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                         ) : null}
                       </>
                     ) : null}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             </ScrollArea>
           ) : (
@@ -995,8 +1102,19 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
               {selectedItem ? `${selectedItem.meta} · ${statusLabel(selectedItem.status, { stage: selectedItem.stage })}` : ''}
             </DialogDescription>
           </DialogHeader>
+          {selectedItemStatusPresentation?.secondaryLabel ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {selectedItemStatusPresentation.secondaryLabel}
+            </div>
+          ) : null}
           {selectedItemAdvice ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-800">
+              <Badge
+                variant="outline"
+                className="border-amber-300 bg-amber-100/80 text-[11px] text-amber-900"
+              >
+                {selectedItemAdvice.categoryLabel}
+              </Badge>
               <div className="font-medium">{selectedItemAdvice.title}</div>
               <div className="mt-1">{selectedItemAdvice.summary}</div>
               <div className="mt-2 space-y-1">
