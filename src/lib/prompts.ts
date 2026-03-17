@@ -333,6 +333,14 @@ const CHUNK_SYNTHESIS_OUTPUT_SCHEMA = `{
   "continuitySummary": "下一块写作需要承接的状态"
 }`;
 
+const SPLIT_DRAFT_CHUNK_OUTPUT_SCHEMA = `{
+  "title": "Part title",
+  "summary": "Part summary grounded in this part only",
+  "draftText": "A detailed prose draft for this part",
+  "keyDevelopments": ["development 1", "development 2"],
+  "continuitySummary": "What the next part must inherit"
+}`;
+
 const GLOBAL_SYNTHESIS_OUTPUT_SCHEMA = `{
   "storyOverview": "完整故事概览",
   "worldGuide": "世界观与环境说明",
@@ -592,6 +600,7 @@ function buildChunkContinuityChain(chunkSyntheses: ChunkSynthesis[]) {
     index: chunk.index,
     title: chunk.title,
     summary: chunk.summary,
+    draftExcerpt: buildExcerpt(chunk.draftText, 260, 120),
     keyDevelopments: chunk.keyDevelopments.slice(0, 5),
     continuitySummary: chunk.continuitySummary,
   }));
@@ -669,6 +678,55 @@ ${stringifyPromptData(pageAnalyses)}
 
 严格按以下 JSON 输出：
 ${CHUNK_SYNTHESIS_OUTPUT_SCHEMA}`;
+}
+
+export function buildSplitDraftChunkPrompt(
+  chunkIndex: number,
+  imageNames: string[],
+  totalChunkCount: number,
+  context?: {
+    previousChunk?: Pick<ChunkSynthesis, 'index' | 'title' | 'summary' | 'draftText' | 'continuitySummary'> | null;
+  }
+): string {
+  const promptContext = {
+    currentPart: {
+      index: chunkIndex,
+      displayNumber: chunkIndex + 1,
+      totalPartCount: totalChunkCount,
+      imageCount: imageNames.length,
+      imageNames,
+    },
+    previousPart: context?.previousChunk
+      ? {
+          index: context.previousChunk.index,
+          title: context.previousChunk.title,
+          summary: context.previousChunk.summary,
+          draftExcerpt: buildExcerpt(context.previousChunk.draftText, 240, 120),
+          continuitySummary: context.previousChunk.continuitySummary,
+        }
+      : null,
+  };
+
+  return [
+    'You will receive the ordered images for one evenly split part of the manga. Do not do page-by-page analysis.',
+    '',
+    'Generate one stable part package directly from the images.',
+    '',
+    'Requirements:',
+    '1. Ground every conclusion in the current part images only.',
+    '2. title, summary, keyDevelopments, and draftText must describe only this part.',
+    '3. draftText should already read like usable Chinese novel prose for this part, not notes or bullets.',
+    '4. Keep continuity with the previous part only when the current images support it.',
+    '5. continuitySummary should state what the next part must inherit: situation, relationship changes, unresolved tension, location/time cues, and emotional state.',
+    '6. If something is ambiguous, stay conservative and avoid inventing key plot facts.',
+    '7. Return JSON only.',
+    '',
+    '[Part context]',
+    stringifyPromptData(promptContext),
+    '',
+    'Strictly output JSON:',
+    SPLIT_DRAFT_CHUNK_OUTPUT_SCHEMA,
+  ].join('\n');
 }
 
 export function buildGlobalSynthesisPrompt(chunkSyntheses: ChunkSynthesis[]): string {
@@ -933,6 +991,60 @@ export function buildSectionUserPrompt(
     .trim();
 }
 
+export function buildSplitDraftFinalSectionPrompt(
+  storySynthesis: StorySynthesis,
+  chunkSyntheses: ChunkSynthesis[],
+  writingMode: WritingMode,
+  writingGuide = ''
+): string {
+  const partDrafts = chunkSyntheses.map((chunk) => ({
+    index: chunk.index,
+    title: chunk.title,
+    summary: chunk.summary,
+    keyDevelopments: chunk.keyDevelopments,
+    continuitySummary: chunk.continuitySummary,
+    draftText: chunk.draftText || '',
+  }));
+  const storyContext = {
+    storyOverview: storySynthesis.storyOverview,
+    worldGuide: storySynthesis.worldGuide,
+    characterGuide: storySynthesis.characterGuide,
+    writingConstraints: storySynthesis.writingConstraints,
+    sceneOutline: storySynthesis.sceneOutline.map((scene) => ({
+      sceneId: scene.sceneId,
+      title: scene.title,
+      summary: scene.summary,
+      chunkIndexes: scene.chunkIndexes,
+    })),
+  };
+
+  return [
+    'Assemble the final full novel body from the already-generated part drafts below.',
+    '',
+    `Writing mode: ${WRITING_MODE_LABELS[writingMode]} / ${buildWritingModeInstruction(writingMode, 'section')}`,
+    writingGuide.trim()
+      ? `\n[Reusable writing guide]\n${writingGuide.trim()}`
+      : '',
+    '',
+    'Requirements:',
+    '1. Do not revert to page-by-page analysis. The part drafts are the main source of truth.',
+    '2. Merge the parts into one smooth, complete Chinese novel body with natural transitions and stable naming.',
+    '3. Preserve the established event order, character relationships, and ending direction from the part drafts.',
+    '4. You may smooth repetitions and transitions, but do not invent major plot points that are missing from the drafts.',
+    '5. continuitySummary should briefly describe the final overall ending state of the completed novel body.',
+    '6. Return JSON only.',
+    '',
+    '[Story synthesis]',
+    stringifyPromptData(storyContext),
+    '',
+    '[Part drafts]',
+    stringifyPromptData(partDrafts),
+    '',
+    'Strictly output JSON:',
+    SECTION_OUTPUT_SCHEMA,
+  ].join('\n');
+}
+
 export function buildWritingPreparationUserPrompt(
   storySynthesis: StorySynthesis,
   chunkSyntheses: ChunkSynthesis[],
@@ -953,6 +1065,7 @@ export function buildWritingPreparationUserPrompt(
       index: chunk.index,
       title: chunk.title,
       summary: chunk.summary,
+      draftExcerpt: buildExcerpt(chunk.draftText, 220, 100),
       continuitySummary: chunk.continuitySummary,
     })),
   };

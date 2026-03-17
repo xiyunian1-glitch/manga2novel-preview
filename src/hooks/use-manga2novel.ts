@@ -89,7 +89,7 @@ function resolvePresetIdFromPresets(systemPrompt: string, presets: CreativePrese
 
 function canResolveModels(
   config: APIConfig,
-  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => Boolean(resolveStageModel(config, stage)));
 }
@@ -372,7 +372,7 @@ function ensureUniqueProfileName(
 
 function canResolveStageAccess(
   config: APIConfig,
-  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => {
     const stageConfig = resolveStageAPIConfig(config, stage);

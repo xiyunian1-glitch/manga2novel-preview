@@ -31,7 +31,13 @@ import { getJSON, setJSON } from '@/lib/crypto-store';
 import { detectLocalProxyStatus, getLocalProxyStatusLabelRange, type LocalProxyStatus } from '@/lib/api-adapter';
 import { getTroubleshootingAdvice } from '@/lib/error-hints';
 import type { APIConfig, LastAIRequest, OrchestratorConfig, RequestStage } from '@/lib/types';
-import { getEnabledRequestStages, resolveStageAPIConfig, resolveStageModel } from '@/lib/types';
+import {
+  getEnabledRequestStages,
+  resolveStageAPIConfig,
+  resolveStageModel,
+  WORKFLOW_MODE_LABELS,
+  WRITING_MODE_LABELS,
+} from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useManga2Novel } from '@/hooks/use-manga2novel';
 
@@ -39,14 +45,14 @@ const ADVANCED_SETTINGS_OPEN_STORAGE_KEY = 'advancedSettingsOpen';
 
 function hasResolvedModels(
   config: APIConfig,
-  orchestratorConfig: Pick<OrchestratorConfig, 'enableFinalPolish'>
+  orchestratorConfig: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => Boolean(resolveStageModel(config, stage)));
 }
 
 function hasResolvedStageAccess(
   config: APIConfig,
-  orchestratorConfig: Pick<OrchestratorConfig, 'enableFinalPolish'>
+  orchestratorConfig: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => {
     const stageConfig = resolveStageAPIConfig(config, stage);
@@ -199,7 +205,8 @@ export default function Manga2NovelApp() {
   const currentPresetName = useMemo(() => {
     return creativePresets.find((preset) => preset.id === taskState.creativeSettings.presetId)?.name || '自定义';
   }, [creativePresets, taskState.creativeSettings.presetId]);
-  const advancedSummary = useMemo(() => {
+  const currentPresetDisplayName = currentPresetName.startsWith('鑷') ? '自定义' : currentPresetName;
+  const legacyAdvancedSummary = useMemo(() => {
     return [
       `风格：${currentPresetName}`,
       `写作模式：${taskState.creativeSettings.writingMode === 'faithful' ? '忠实转写' : '文学改写'}`,
@@ -214,6 +221,36 @@ export default function Manga2NovelApp() {
     taskState.config.chunkSize,
     taskState.config.enableFinalPolish,
     taskState.config.synthesisChunkCount,
+    taskState.creativeSettings.writingMode,
+  ]);
+  void legacyAdvancedSummary;
+  const modeAwareAdvancedSummary = useMemo(() => {
+    const workflowModeLabel = WORKFLOW_MODE_LABELS[taskState.config.workflowMode];
+    const writingModeLabel = WRITING_MODE_LABELS[taskState.creativeSettings.writingMode];
+    const workflowSummary = taskState.config.workflowMode === 'split-draft'
+      ? `均分部分：${taskState.config.splitPartCount} 份`
+      : `逐页分组：${taskState.config.chunkSize === 0 ? '自动' : `每组 ${taskState.config.chunkSize} 张`}`;
+    const synthesisSummary = taskState.config.workflowMode === 'split-draft'
+      ? '生成顺序：均分生成 → 整书综合 → 完整正文'
+      : `分块综合：${taskState.config.synthesisChunkCount} 段`;
+
+    return [
+      `风格：${currentPresetDisplayName}`,
+      `写作模式：${writingModeLabel}`,
+      `流程模式：${workflowModeLabel}`,
+      workflowSummary,
+      synthesisSummary,
+      `全书统稿：${taskState.config.enableFinalPolish ? '开' : '关'}`,
+      `自动跳过：${taskState.config.autoSkipOnError ? '开' : '关'}`,
+    ];
+  }, [
+    currentPresetDisplayName,
+    taskState.config.autoSkipOnError,
+    taskState.config.chunkSize,
+    taskState.config.enableFinalPolish,
+    taskState.config.splitPartCount,
+    taskState.config.synthesisChunkCount,
+    taskState.config.workflowMode,
     taskState.creativeSettings.writingMode,
   ]);
   const mobileStartHint = useMemo(() => {
@@ -475,7 +512,14 @@ export default function Manga2NovelApp() {
   );
 
   return (
-    <div className="min-h-screen bg-background">
+    <div
+      className="min-h-screen bg-background"
+      data-testid="manga2novel-app"
+      data-app-status={taskState.status}
+      data-current-stage={taskState.currentStage}
+      data-start-ready={canStart ? 'true' : 'false'}
+      data-outline-confirmation-needed={needsOutlineConfirmation ? 'true' : 'false'}
+    >
       <Toaster position="top-right" richColors />
 
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70">
@@ -520,6 +564,7 @@ export default function Manga2NovelApp() {
                 className="h-9"
                 variant={taskState.config.autoSkipOnError ? 'default' : 'outline'}
                 onClick={() => saveOrchestratorConfig({ autoSkipOnError: !taskState.config.autoSkipOnError })}
+                data-action="toggle-auto-skip"
               >
                 <SkipForward className="mr-1 h-4 w-4" />
                 {taskState.config.autoSkipOnError ? '自动跳过：开' : '自动跳过：关'}
@@ -528,14 +573,27 @@ export default function Manga2NovelApp() {
               {requestTraceDialog}
 
               {!isRunning && !isPaused && !isCompleted && (
-                <Button onClick={handleStart} size="sm" disabled={!canStart} className="hidden h-9 lg:inline-flex">
+                <Button
+                  onClick={handleStart}
+                  size="sm"
+                  disabled={!canStart}
+                  className="hidden h-9 lg:inline-flex"
+                  data-action="start-processing"
+                  data-viewport="desktop"
+                >
                   <Play className="mr-1 h-4 w-4" />
                   开始转换
                 </Button>
               )}
 
               {isRunning && (
-                <Button variant="secondary" size="sm" className="h-9" onClick={pause}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-9"
+                  onClick={pause}
+                  data-action="pause-processing"
+                >
                   <Pause className="mr-1 h-4 w-4" />
                   暂停
                 </Button>
@@ -543,15 +601,34 @@ export default function Manga2NovelApp() {
 
               {isPaused && (
                 <>
-                  <Button onClick={handleResume} size="sm" className="h-9" disabled={needsOutlineConfirmation}>
+                  <Button
+                    onClick={handleResume}
+                    size="sm"
+                    className="h-9"
+                    disabled={needsOutlineConfirmation}
+                    data-action="resume-processing"
+                  >
                     <Play className="mr-1 h-4 w-4" />
                     继续
                   </Button>
-                  <Button variant="outline" size="sm" className="h-9" onClick={handleSkip} disabled={needsOutlineConfirmation}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={handleSkip}
+                    disabled={needsOutlineConfirmation}
+                    data-action="skip-current"
+                  >
                     <SkipForward className="mr-1 h-4 w-4" />
                     跳过
                   </Button>
-                  <Button variant="outline" size="sm" className="h-9" onClick={handleRetry}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={handleRetry}
+                    data-action="retry-current"
+                  >
                     <RotateCcw className="mr-1 h-4 w-4" />
                     重试
                   </Button>
@@ -559,7 +636,13 @@ export default function Manga2NovelApp() {
               )}
 
               {(isPaused || isCompleted) && (
-                <Button variant="ghost" size="sm" className="h-9" onClick={reset}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9"
+                  onClick={reset}
+                  data-action="reset-workspace"
+                >
                   <RefreshCw className="mr-1 h-4 w-4" />
                   重置
                 </Button>
@@ -587,12 +670,18 @@ export default function Manga2NovelApp() {
 
               <div className="flex flex-wrap gap-2">
                 {showRecoveryResume ? (
-                  <Button type="button" size="sm" onClick={handleResume}>
+                  <Button type="button" size="sm" onClick={handleResume} data-action="resume-processing">
                     <Play className="mr-1 h-4 w-4" />
                     继续
                   </Button>
                 ) : null}
-                <Button type="button" size="sm" variant="outline" onClick={dismissRecoveryNotice}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={dismissRecoveryNotice}
+                  data-action="dismiss-recovery-notice"
+                >
                   知道了
                 </Button>
               </div>
@@ -682,13 +771,19 @@ export default function Manga2NovelApp() {
                       这里收纳 Prompt 和队列参数；调试与容错已经移回上方，方便随时查看。
                     </CardDescription>
                   </div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setAdvancedOpen((prev) => !prev)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAdvancedOpen((prev) => !prev)}
+                    data-action="toggle-advanced-settings"
+                  >
                     {advancedOpen ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
                     {advancedOpen ? '收起高级设置' : '展开高级设置'}
                   </Button>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
-                  {advancedSummary.map((item) => (
+                  {modeAwareAdvancedSummary.map((item) => (
                     <Badge key={item} variant="outline">{item}</Badge>
                   ))}
                 </div>
@@ -748,7 +843,14 @@ export default function Manga2NovelApp() {
               </div>
               <Badge variant={canStart ? 'default' : 'outline'}>{images.length} 张</Badge>
             </div>
-            <Button size="lg" className="w-full" onClick={handleStart} disabled={!canStart}>
+            <Button
+              size="lg"
+              className="w-full"
+              onClick={handleStart}
+              disabled={!canStart}
+              data-action="start-processing"
+              data-viewport="mobile"
+            >
               <Play className="mr-1 h-4 w-4" />
               开始转换
             </Button>
