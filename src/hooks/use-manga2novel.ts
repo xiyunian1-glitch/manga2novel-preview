@@ -500,6 +500,8 @@ export function useManga2Novel() {
     },
     currentChunkIndex: -1,
     fullNovel: '',
+    runtimeMs: 0,
+    runtimeStartedAt: undefined,
     lastAIRequest: undefined,
   });
   const [configLoaded, setConfigLoaded] = useState(false);

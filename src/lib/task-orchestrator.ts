@@ -1019,6 +1019,15 @@ function cloneFinalPolish(value: FinalPolish): FinalPolish {
   };
 }
 
+function normalizeRuntimeMs(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.trunc(numericValue));
+}
+
 interface ModelRequest {
   stage: RequestStage;
   itemLabel: string;
@@ -1408,6 +1417,8 @@ export class TaskOrchestrator {
       creativeSettings: { ...DEFAULT_CREATIVE_SETTINGS },
       currentChunkIndex: -1,
       fullNovel: '',
+      runtimeMs: 0,
+      runtimeStartedAt: undefined,
       lastAIRequest: undefined,
     };
   }
@@ -1460,6 +1471,8 @@ export class TaskOrchestrator {
       memory: { ...this.state.memory },
       config: { ...this.state.config },
       creativeSettings: { ...this.state.creativeSettings },
+      runtimeMs: this.getCurrentRuntimeMs(),
+      runtimeStartedAt: this.state.runtimeStartedAt,
       lastAIRequest: this.state.lastAIRequest
         ? {
             ...this.state.lastAIRequest,
@@ -1471,6 +1484,44 @@ export class TaskOrchestrator {
 
   setAPIConfig(config: APIConfig) {
     this.apiConfig = config;
+  }
+
+  private getCurrentRuntimeMs(): number {
+    const baseRuntimeMs = normalizeRuntimeMs(this.state.runtimeMs);
+    if (!this.state.runtimeStartedAt) {
+      return baseRuntimeMs;
+    }
+
+    const startedAtMs = Date.parse(this.state.runtimeStartedAt);
+    if (!Number.isFinite(startedAtMs)) {
+      return baseRuntimeMs;
+    }
+
+    return baseRuntimeMs + Math.max(0, Date.now() - startedAtMs);
+  }
+
+  private startRuntimeTracking(reset = false) {
+    if (reset) {
+      this.state.runtimeMs = 0;
+    }
+
+    if (!this.state.runtimeStartedAt) {
+      this.state.runtimeStartedAt = new Date().toISOString();
+    }
+  }
+
+  private stopRuntimeTracking(state: TaskState = this.state) {
+    state.runtimeMs = normalizeRuntimeMs(state.runtimeMs);
+    if (!state.runtimeStartedAt) {
+      return;
+    }
+
+    const startedAtMs = Date.parse(state.runtimeStartedAt);
+    if (Number.isFinite(startedAtMs)) {
+      state.runtimeMs += Math.max(0, Date.now() - startedAtMs);
+    }
+
+    state.runtimeStartedAt = undefined;
   }
 
   updateConfig(config: Partial<OrchestratorConfig>) {
@@ -2319,6 +2370,8 @@ export class TaskOrchestrator {
     this.abortController?.abort();
     this.abortController = null;
     this.isPaused = false;
+    this.startRuntimeTracking();
+    this.startRuntimeTracking();
     this.state.status = 'running';
     this.state.currentStage = stage;
     this.state.currentChunkIndex = chunkIndex;
@@ -2327,6 +2380,7 @@ export class TaskOrchestrator {
   }
 
   private pauseAfterSingleItemReplay(stage: RequestStage, chunkIndex: number) {
+    this.stopRuntimeTracking();
     this.state.status = 'paused';
     this.state.currentStage = stage;
     this.state.currentChunkIndex = chunkIndex;
@@ -2337,6 +2391,14 @@ export class TaskOrchestrator {
   private normalizeRestoredState(state: TaskState): TaskState {
     const wasPreparing = state.status === 'preparing';
     const wasRunning = state.status === 'running';
+    state.runtimeMs = normalizeRuntimeMs(state.runtimeMs);
+    if (state.runtimeStartedAt) {
+      const startedAtMs = Date.parse(state.runtimeStartedAt);
+      if (Number.isFinite(startedAtMs) && (wasPreparing || wasRunning)) {
+        state.runtimeMs += Math.max(0, Date.now() - startedAtMs);
+      }
+      state.runtimeStartedAt = undefined;
+    }
     state.config = { ...DEFAULT_ORCHESTRATOR_CONFIG, ...state.config };
     state.creativeSettings = { ...DEFAULT_CREATIVE_SETTINGS, ...state.creativeSettings };
     state.globalSynthesis = {
@@ -2828,6 +2890,8 @@ export class TaskOrchestrator {
   }
 
   async prepare(images: ImageItem[]): Promise<void> {
+    this.state.runtimeMs = 0;
+    this.state.runtimeStartedAt = undefined;
     this.state.status = 'preparing';
     this.state.currentStage = 'idle';
     this.emit('state-change');
@@ -2926,6 +2990,7 @@ export class TaskOrchestrator {
     this.state.currentChunkIndex = chunks.length > 0 ? 0 : -1;
     this.state.fullNovel = '';
     this.state.status = 'idle';
+    this.state.runtimeStartedAt = undefined;
     this.emit('state-change');
   }
 
@@ -2998,6 +3063,7 @@ export class TaskOrchestrator {
 
     if (this.state.currentStage === 'polish-novel' && !this.state.config.enableFinalPolish) {
       this.state.currentStage = 'idle';
+      this.stopRuntimeTracking();
       this.state.status = 'completed';
       this.abortController = null;
       this.refreshFullNovel();
@@ -3012,6 +3078,7 @@ export class TaskOrchestrator {
       }
     }
 
+    this.stopRuntimeTracking();
     this.state.status = 'completed';
     this.state.currentStage = 'idle';
     this.abortController = null;
@@ -3099,6 +3166,7 @@ export class TaskOrchestrator {
 
     if (fatalError) {
       this.resetProcessingPageAnalysesToPending();
+      this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.state.currentChunkIndex = fatalError.index;
       this.emit('chunk-error', fatalError.index, fatalError.message);
@@ -3108,6 +3176,7 @@ export class TaskOrchestrator {
 
     if (this.isPaused) {
       this.resetProcessingPageAnalysesToPending();
+      this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.state.currentChunkIndex = this.findNextPendingPageAnalysisBatchIndex(0);
       this.emit('paused');
@@ -3120,6 +3189,7 @@ export class TaskOrchestrator {
   private async runChunkSynthesisStage(): Promise<boolean> {
     for (let index = this.state.currentChunkIndex; index < this.state.chunkSyntheses.length; index += 1) {
       if (this.isPaused) {
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentChunkIndex = index;
         this.emit('paused');
@@ -3145,6 +3215,7 @@ export class TaskOrchestrator {
         this.emit('chunk-success', index);
       } catch (error) {
         if (isAbortError(error)) {
+          this.stopRuntimeTracking();
           this.state.status = 'paused';
           this.state.currentChunkIndex = index;
           this.emit('paused');
@@ -3162,6 +3233,7 @@ export class TaskOrchestrator {
           this.applySkippedChunkSynthesis(index, errorMessage);
           continue;
         }
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentChunkIndex = index;
         this.emit('chunk-error', index, errorMessage);
@@ -3175,6 +3247,7 @@ export class TaskOrchestrator {
 
   private async runStorySynthesisStage(): Promise<boolean> {
     if (this.isPaused) {
+      this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.emit('paused');
       return false;
@@ -3182,6 +3255,7 @@ export class TaskOrchestrator {
 
     if (this.state.globalSynthesis.status === 'success' || this.state.globalSynthesis.status === 'skipped') {
       if (!this.state.globalSynthesis.outlineConfirmed && !this.isSplitDraftMode()) {
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentStage = 'synthesize-story';
         this.state.currentChunkIndex = 0;
@@ -3236,6 +3310,7 @@ export class TaskOrchestrator {
       if (this.isSplitDraftMode()) {
         return true;
       }
+      this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.state.currentStage = 'synthesize-story';
       this.state.currentChunkIndex = 0;
@@ -3243,6 +3318,7 @@ export class TaskOrchestrator {
       return false;
     } catch (error) {
       if (isAbortError(error)) {
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.emit('paused');
         return false;
@@ -3256,12 +3332,14 @@ export class TaskOrchestrator {
         if (this.isSplitDraftMode()) {
           return true;
         }
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentStage = 'synthesize-story';
         this.state.currentChunkIndex = 0;
         this.emit('paused');
         return false;
       }
+      this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.emit('chunk-error', 0, errorMessage);
       this.emit('paused');
@@ -3280,6 +3358,7 @@ export class TaskOrchestrator {
       await this.ensureWritingPreparation();
     } catch (error) {
       if (isAbortError(error)) {
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentChunkIndex = 0;
         this.emit('paused');
@@ -3287,6 +3366,7 @@ export class TaskOrchestrator {
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error);
+      this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.state.currentChunkIndex = 0;
       this.emit('chunk-error', 0, errorMessage);
@@ -3296,6 +3376,7 @@ export class TaskOrchestrator {
 
     for (let index = this.state.currentChunkIndex; index < this.state.novelSections.length; index += 1) {
       if (this.isPaused) {
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentChunkIndex = index;
         this.emit('paused');
@@ -3378,6 +3459,7 @@ export class TaskOrchestrator {
         this.emit('chunk-success', index);
       } catch (error) {
         if (isAbortError(error)) {
+          this.stopRuntimeTracking();
           this.state.status = 'paused';
           this.state.currentChunkIndex = index;
           this.emit('paused');
@@ -3391,6 +3473,7 @@ export class TaskOrchestrator {
           this.applySkippedSection(index, errorMessage);
           continue;
         }
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentChunkIndex = index;
         this.emit('chunk-error', index, errorMessage);
@@ -3404,6 +3487,7 @@ export class TaskOrchestrator {
 
   private async runFinalPolishStage(): Promise<boolean> {
     if (this.isPaused) {
+      this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.state.currentChunkIndex = 0;
       this.emit('paused');
@@ -3424,6 +3508,7 @@ export class TaskOrchestrator {
       return true;
     } catch (error) {
       if (isAbortError(error)) {
+        this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentChunkIndex = 0;
         this.emit('paused');
@@ -3439,6 +3524,7 @@ export class TaskOrchestrator {
         this.emit('chunk-skip', 0);
         return true;
       }
+      this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.state.currentChunkIndex = 0;
       this.emit('chunk-error', 0, errorMessage);
@@ -4300,6 +4386,8 @@ export class TaskOrchestrator {
       creativeSettings: this.state.creativeSettings,
       currentChunkIndex: -1,
       fullNovel: '',
+      runtimeMs: 0,
+      runtimeStartedAt: undefined,
       lastAIRequest: this.state.lastAIRequest,
     };
     this.emit('state-change');

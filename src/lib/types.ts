@@ -267,6 +267,8 @@ export interface TaskState {
   creativeSettings: CreativeSettings;
   currentChunkIndex: number;
   fullNovel: string;
+  runtimeMs: number;
+  runtimeStartedAt?: string;
   lastAIRequest?: LastAIRequest;
 }
 

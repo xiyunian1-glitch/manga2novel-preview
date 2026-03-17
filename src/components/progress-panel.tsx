@@ -75,6 +75,23 @@ function statusLabel(status: ChunkStatus): string {
   }
 }
 
+function isTaskActivelyRunning(taskState: TaskState): boolean {
+  return taskState.status === 'running' || taskState.status === 'preparing';
+}
+
+function formatRuntime(runtimeMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(runtimeMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 function StatusIcon({ status }: { status: ChunkStatus }) {
   switch (status) {
     case 'processing':
@@ -398,6 +415,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   const [selectedStage, setSelectedStage] = useState<RequestStage | null>(null);
   const [selectedItem, setSelectedItem] = useState<ProgressItem | null>(null);
   const [regeneratingKey, setRegeneratingKey] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     if (!selectedStage) {
@@ -405,10 +423,30 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
     }
   }, [selectedStage, taskState]);
 
+  useEffect(() => {
+    if (!isTaskActivelyRunning(taskState)) {
+      return;
+    }
+
+    setNowMs(Date.now());
+    const timerId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [taskState.status, taskState.runtimeStartedAt]);
+
   const stageCards = useMemo(() => buildStageCards(taskState), [taskState]);
   const displayStage = selectedStage || getDisplayStage(taskState);
   const items = useMemo(() => buildStageItems(taskState, displayStage), [displayStage, taskState]);
   const useCompactChunkCards = isSplitDraftMode(taskState) && displayStage === 'synthesize-chunks';
+  const runtimeStartedAtMs = taskState.runtimeStartedAt ? Date.parse(taskState.runtimeStartedAt) : Number.NaN;
+  const runtimeMs = taskState.runtimeMs + (
+    isTaskActivelyRunning(taskState) && Number.isFinite(runtimeStartedAtMs)
+      ? Math.max(0, nowMs - runtimeStartedAtMs)
+      : 0
+  );
+  const runtimeLabel = formatRuntime(runtimeMs);
 
   const includePageStage = !isSplitDraftMode(taskState);
   const totalUnits = (includePageStage ? taskState.pageAnalyses.length : 0)
@@ -462,8 +500,9 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
           </Badge>
         </div>
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
             <span>{Math.round(progress)}%</span>
+            <span>杩愯鏃堕棿 {runtimeLabel}</span>
             <span>{completedUnits} / {totalUnits || 0}</span>
           </div>
           <Progress value={progress} />
