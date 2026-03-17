@@ -141,6 +141,39 @@ function joinValues(values: Array<string | undefined>, fallback = '无'): string
   return normalized.length > 0 ? normalized.join(' / ') : fallback;
 }
 
+function buildChunkPreview(
+  chunk: TaskState['chunkSyntheses'][number],
+  splitDraftMode: boolean
+): string {
+  const primaryLine = chunk.summary?.trim()
+    ? `摘要：${chunk.summary}`
+    : chunk.draftText?.trim()
+      ? `草稿片段：${extractPreview(chunk.draftText, splitDraftMode ? 90 : 140)}`
+      : '';
+  const previewLines = [
+    primaryLine,
+    chunk.keyDevelopments.length > 0 ? `推进：${joinValues(chunk.keyDevelopments)}` : '',
+    chunk.continuitySummary?.trim() ? `承接：${chunk.continuitySummary}` : '',
+  ].filter(Boolean);
+
+  if (previewLines.length > 0) {
+    return previewLines.slice(0, splitDraftMode ? 2 : 3).join('\n');
+  }
+
+  switch (chunk.status) {
+    case 'processing':
+      return '这一部分正在生成中，完成后会在这里显示摘要。';
+    case 'error':
+      return '这一部分生成失败，可点“详情”查看原因。';
+    case 'success':
+      return '这一部分已生成，可点“详情”查看内容。';
+    default:
+      return splitDraftMode
+        ? '这一部分开始生成后，会在这里显示摘要。'
+        : '等待生成后显示摘要。';
+  }
+}
+
 function buildPageItem(taskState: TaskState): ProgressItem[] {
   return taskState.pageAnalyses.map((page) => ({
     key: `page-${page.index}`,
@@ -375,6 +408,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   const stageCards = useMemo(() => buildStageCards(taskState), [taskState]);
   const displayStage = selectedStage || getDisplayStage(taskState);
   const items = useMemo(() => buildStageItems(taskState, displayStage), [displayStage, taskState]);
+  const useCompactChunkCards = isSplitDraftMode(taskState) && displayStage === 'synthesize-chunks';
 
   const includePageStage = !isSplitDraftMode(taskState);
   const totalUnits = (includePageStage ? taskState.pageAnalyses.length : 0)
@@ -472,7 +506,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
           ))}
         </div>
 
-        <div className="rounded-xl border">
+        <div className="overflow-hidden rounded-xl border">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div>
               <div className="text-sm font-medium">{stageLabel(displayStage, taskState)}</div>
@@ -483,23 +517,29 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
               </div>
             </div>
           </div>
-          <ScrollArea className="max-h-[520px]">
-            <div className="space-y-3 p-4">
+          <div className="max-h-[min(520px,calc(100vh-18rem))] overflow-y-auto overscroll-contain">
+            <div className={useCompactChunkCards ? 'space-y-2.5 p-3' : 'space-y-3 p-4'}>
               {items.length === 0 ? (
                 <div className="rounded-lg border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
                   当前阶段还没有可展示的内容。
                 </div>
               ) : items.map((item) => (
-                <div key={item.key} className="rounded-xl border p-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1">
+                <div key={item.key} className={useCompactChunkCards ? 'rounded-xl border p-2.5' : 'rounded-xl border p-3'}>
+                  <div className={useCompactChunkCards ? 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between' : 'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'}>
+                    <div className={useCompactChunkCards ? 'min-w-0 space-y-0.5' : 'min-w-0 space-y-1'}>
                       <div className="flex items-center gap-2">
                         <StatusIcon status={item.status} />
                         <span className="font-medium">{item.label}</span>
                         <Badge variant="outline">{statusLabel(item.status)}</Badge>
                       </div>
                       <div className="text-xs text-muted-foreground">{item.meta}</div>
-                      <div className="whitespace-pre-wrap text-sm text-muted-foreground">{item.preview}</div>
+                      <div
+                        className={useCompactChunkCards
+                          ? 'max-h-10 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground'
+                          : 'whitespace-pre-wrap text-sm text-muted-foreground'}
+                      >
+                        {item.preview}
+                      </div>
                     </div>
                     <div className="flex shrink-0 gap-2">
                       <Button
@@ -532,7 +572,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                 </div>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         </div>
       </CardContent>
 
