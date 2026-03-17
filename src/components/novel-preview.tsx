@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { BookOpen, Check, Copy, Download } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -26,32 +27,49 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
     section.status === 'success' && Boolean(section.markdownBody?.trim())
   ));
   const hasFinalPolish = taskState.finalPolish.status === 'success' && Boolean(taskState.finalPolish.markdownBody?.trim());
+  const previewHeightClass = 'h-[52vh] min-h-[320px] md:h-[58vh] xl:h-[calc(100vh-13.5rem)]';
 
   return (
-    <Card className="flex h-full flex-col">
-      <CardHeader className="shrink-0 pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
+    <Card className="flex h-full flex-col xl:sticky xl:top-[5.5rem] xl:max-h-[calc(100vh-6.5rem)]">
+      <CardHeader className="shrink-0 space-y-3 pb-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <CardTitle className="flex items-center gap-2 text-base">
           <BookOpen className="h-4 w-4" />
           小说预览
-          <div className="ml-auto flex flex-wrap gap-1">
-            <Button variant="outline" size="sm" className="h-7" onClick={handleCopy} disabled={!taskState.fullNovel}>
+            </CardTitle>
+            <div className="flex flex-wrap gap-2">
+              {hasFinalPolish ? (
+                <Badge variant="default">全书统稿版</Badge>
+              ) : completedSections.length > 0 ? (
+                <Badge variant="secondary">章节实时预览</Badge>
+              ) : (
+                <Badge variant="outline">等待正文生成</Badge>
+              )}
+              {completedSections.length > 0 ? (
+                <Badge variant="outline">已生成 {completedSections.length} 节</Badge>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            <Button variant="outline" size="sm" className="h-8" onClick={handleCopy} disabled={!taskState.fullNovel}>
               {copied ? <Check className="mr-1 h-3 w-3" /> : <Copy className="mr-1 h-3 w-3" />}
               {copied ? '已复制' : '复制'}
             </Button>
-            <Button variant="outline" size="sm" className="h-7" onClick={() => onExport('txt')} disabled={!taskState.fullNovel}>
+            <Button variant="outline" size="sm" className="h-8" onClick={() => onExport('txt')} disabled={!taskState.fullNovel}>
               <Download className="mr-1 h-3 w-3" />
               下载 TXT
             </Button>
-            <Button variant="outline" size="sm" className="h-7" onClick={() => onExport('md')} disabled={!taskState.fullNovel}>
+            <Button variant="outline" size="sm" className="h-8" onClick={() => onExport('md')} disabled={!taskState.fullNovel}>
               <Download className="mr-1 h-3 w-3" />
               下载 MD
             </Button>
           </div>
-        </CardTitle>
+        </div>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 space-y-4">
+      <CardContent className="flex-1 min-h-0 pt-0">
         {hasFinalPolish ? (
-          <ScrollArea className="h-[500px]">
+          <ScrollArea className={previewHeightClass}>
             <div className="space-y-4 pr-4">
               <div className="flex items-center gap-2">
                 <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
@@ -65,7 +83,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
             </div>
           </ScrollArea>
         ) : completedSections.length > 0 ? (
-          <ScrollArea className="h-[500px]">
+          <ScrollArea className={previewHeightClass}>
             <div className="space-y-4 pr-4">
               {completedSections.map((section) => (
                 <div key={section.index}>
@@ -84,7 +102,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
             </div>
           </ScrollArea>
         ) : (
-          <div className="flex h-[220px] items-center justify-center text-muted-foreground">
+          <div className="flex h-[260px] items-center justify-center rounded-xl border border-dashed bg-muted/10 text-muted-foreground xl:h-[calc(100vh-20rem)]">
             <div className="text-center">
               <BookOpen className="mx-auto mb-3 h-10 w-10 opacity-20" />
               <p className="text-sm">章节写作结果会在这里实时预览</p>

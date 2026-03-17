@@ -1,6 +1,7 @@
 import type {
   ChunkSynthesis,
   CreativePreset,
+  NovelSection,
   PageAnalysis,
   ScenePlan,
   StorySynthesis,
@@ -367,7 +368,8 @@ const SECTION_SYSTEM_PROMPT_BODY = `## 你的任务
 4. 如果资料里存在模糊信息，可以模糊表达，但不要擅自补全。
 5. 不要提到“漫画、分镜、画格、镜头、气泡”等元信息。
 6. 如遇敏感画面，只保留剧情推进所必需的信息，避免露骨描写。
-7. 只返回 JSON，不要附加 Markdown 代码块或额外说明。
+7. 不要输出 [1]、[2]、[^1] 这类引用标记、脚注、来源编号或检索注释。
+8. 只返回 JSON，不要附加 Markdown 代码块或额外说明。
 ${SECTION_OUTPUT_SCHEMA}`;
 
 const FINAL_POLISH_SYSTEM_PROMPT_BODY = `## 你的任务
@@ -379,6 +381,48 @@ const FINAL_POLISH_SYSTEM_PROMPT_BODY = `## 你的任务
 3. 可以优化句段表达、节奏和章节过渡，但不要把原稿改成另一部故事。
 4. 如果原稿已经稳定，优先轻修，不要为了“更文学”而过度改写。
 5. 只返回 JSON，不要附加 Markdown 代码块或额外说明。
+${FINAL_POLISH_OUTPUT_SCHEMA}`;
+
+const FINAL_POLISH_VOICE_GUIDE_OUTPUT_SCHEMA = `{
+  "voiceGuide": "A concise cross-section editing guide for final polish."
+}`;
+
+const WRITING_PREPARATION_OUTPUT_SCHEMA = `{
+  "voiceGuide": "A concise section-writing guide for the upcoming chapter drafting stage."
+}`;
+
+const FINAL_POLISH_VOICE_GUIDE_SYSTEM_PROMPT_BODY = `## Your task
+You will receive story-level synthesis plus representative section samples from a completed novel draft.
+Create a compact editing guide that can be reused to polish sections one by one while keeping the whole book consistent.
+## Output rules
+1. Keep the guide concise, specific, and directly reusable for section-level polishing.
+2. Focus on narrative voice, naming consistency, dialogue formatting, paragraph rhythm, emotional intensity, and continuity priorities.
+3. Do not invent new plot points, characters, settings, or endings.
+4. The voiceGuide field must be a plain string, not an object or array.
+5. Return JSON only, without Markdown code fences or extra explanation.
+${FINAL_POLISH_VOICE_GUIDE_OUTPUT_SCHEMA}`;
+
+const WRITING_PREPARATION_SYSTEM_PROMPT_BODY = `## Your task
+You will receive story-level synthesis before section drafting starts.
+Create a compact writing guide that can be reused across every section so the novel stays consistent from the first chapter onward.
+## Output rules
+1. Keep the guide concise, concrete, and directly reusable for section drafting.
+2. Focus on tone, diction, dialogue style, paragraph rhythm, perspective consistency, naming consistency, and continuity priorities.
+3. Do not invent new plot points, characters, settings, or endings.
+4. Base the guide only on the provided synthesis materials.
+5. The voiceGuide field must be a plain string, not an object or array.
+6. Return JSON only, without Markdown code fences or extra explanation.
+${WRITING_PREPARATION_OUTPUT_SCHEMA}`;
+
+const FINAL_POLISH_SECTION_SYSTEM_PROMPT_BODY = `## Your task
+You will receive one already-written novel section, a novel-level voice guide, and lightweight continuity context.
+Lightly polish only the current section so that its tone, naming, rhythm, and continuity match the rest of the book.
+## Output rules
+1. Preserve the section's core plot facts, character relationships, and event order.
+2. Prefer light-to-moderate editing. Do not rewrite the section into a different story.
+3. Keep names, pronouns, dialogue style, and tone consistent with the provided guide and continuity context.
+4. Maintain smooth transitions with nearby sections, but do not pull in events that belong to adjacent sections.
+5. Return JSON only, without Markdown code fences or extra explanation.
 ${FINAL_POLISH_OUTPUT_SCHEMA}`;
 
 function stringifyPromptData(data: unknown): string {
@@ -410,6 +454,18 @@ function dedupeStrings(values: Array<string | undefined>, limit = 6): string[] {
   return result;
 }
 
+function buildSectionLengthGuidance(pageCount: number, chunkCount: number): string {
+  if (pageCount <= 1) {
+    return '这是一个较短场景。请至少写成 2-3 个自然段，尽量达到约 220-350 字，让开场、动作/对话、情绪落点完整成形，而不是只写一句摘要。';
+  }
+
+  if (pageCount <= 3 || chunkCount <= 2) {
+    return '这是一个中短场景。请尽量写成 3-5 个自然段，约 380-700 字，把动作、对话、情绪变化和承接信息展开成完整小说场景。';
+  }
+
+  return '这是一个信息量较高的场景。请尽量写成 5-8 个自然段，约 650-1200 字，充分展开场景推进、人物反应和氛围变化。';
+}
+
 function buildWritingModeInstruction(writingMode: WritingMode, stage: 'section' | 'polish'): string {
   if (writingMode === 'literary') {
     return stage === 'polish'
@@ -420,6 +476,27 @@ function buildWritingModeInstruction(writingMode: WritingMode, stage: 'section' 
   return stage === 'polish'
     ? '以原有章节正文和整书资料为准，优先修正一致性、重复和衔接问题，避免不必要的文学化扩写。'
     : '优先保证信息准确、承接稳定、事件清晰，少做无依据的延展和过度文学化描写。';
+}
+
+function buildExcerpt(text: string | undefined, headLength = 700, tailLength = 220): string {
+  const normalized = String(text || '')
+    .trim()
+    .replace(/\n{3,}/g, '\n\n');
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized.length <= headLength + tailLength + 40) {
+    return normalized;
+  }
+
+  const parts = [
+    headLength > 0 ? normalized.slice(0, headLength).trim() : '',
+    tailLength > 0 ? normalized.slice(-tailLength).trim() : '',
+  ].filter(Boolean);
+
+  return parts.join('\n...\n');
 }
 
 function summarizeCharacterContext(pageAnalyses: PageAnalysis[], limit = 10) {
@@ -528,6 +605,21 @@ export function buildSectionSystemPrompt(systemPrompt: string): string {
 export function buildFinalPolishSystemPrompt(systemPrompt: string): string {
   const { supplementalPrompt, roleAndStyle } = splitSystemPrompt(systemPrompt);
   return composeSystemPrompt(supplementalPrompt, roleAndStyle, FINAL_POLISH_SYSTEM_PROMPT_BODY);
+}
+
+export function buildFinalPolishVoiceGuideSystemPrompt(systemPrompt: string): string {
+  const { supplementalPrompt, roleAndStyle } = splitSystemPrompt(systemPrompt);
+  return composeSystemPrompt(supplementalPrompt, roleAndStyle, FINAL_POLISH_VOICE_GUIDE_SYSTEM_PROMPT_BODY);
+}
+
+export function buildWritingPreparationSystemPrompt(systemPrompt: string): string {
+  const { supplementalPrompt, roleAndStyle } = splitSystemPrompt(systemPrompt);
+  return composeSystemPrompt(supplementalPrompt, roleAndStyle, WRITING_PREPARATION_SYSTEM_PROMPT_BODY);
+}
+
+export function buildFinalPolishSectionSystemPrompt(systemPrompt: string): string {
+  const { supplementalPrompt, roleAndStyle } = splitSystemPrompt(systemPrompt);
+  return composeSystemPrompt(supplementalPrompt, roleAndStyle, FINAL_POLISH_SECTION_SYSTEM_PROMPT_BODY);
 }
 
 export function buildPageAnalysisPrompt(
@@ -678,12 +770,17 @@ export function buildSectionUserPrompt(
   chunkSyntheses: ChunkSynthesis[],
   pageAnalyses: PageAnalysis[],
   writingMode: WritingMode,
+  writingGuide = '',
   template = USER_PROMPT_TEMPLATE
 ): string {
   const runtimeTemplate = template.trim() || USER_PROMPT_TEMPLATE;
   const relatedChunkIndexes = new Set(scenePlan.chunkIndexes);
   const relatedPageAnalyses = pageAnalyses
     .filter((page) => relatedChunkIndexes.has(page.chunkIndex));
+  const sectionLengthGuidance = buildSectionLengthGuidance(
+    relatedPageAnalyses.length,
+    relatedChunkIndexes.size
+  );
   const relatedChunks = chunkSyntheses
     .filter((chunk) => relatedChunkIndexes.has(chunk.index))
     .map((chunk) => ({
@@ -800,6 +897,11 @@ export function buildSectionUserPrompt(
     'Use the current section as the main source of truth. Use previous and next scene context only to smooth transitions, preserve character consistency, and maintain narrative continuity.',
     '',
     `【写作模式】\n${WRITING_MODE_LABELS[writingMode]}：${buildWritingModeInstruction(writingMode, 'section')}`,
+    writingGuide.trim()
+      ? `\n【统一写作指南】\n${writingGuide.trim()}`
+      : '',
+    '',
+    `【章节展开要求】\n${sectionLengthGuidance}`,
     '',
     sceneSourceBlock,
     '',
@@ -829,6 +931,51 @@ export function buildSectionUserPrompt(
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+export function buildWritingPreparationUserPrompt(
+  storySynthesis: StorySynthesis,
+  chunkSyntheses: ChunkSynthesis[],
+  writingMode: WritingMode
+): string {
+  const storyContext = {
+    storyOverview: storySynthesis.storyOverview,
+    worldGuide: storySynthesis.worldGuide,
+    characterGuide: storySynthesis.characterGuide,
+    writingConstraints: storySynthesis.writingConstraints,
+    sceneOutline: storySynthesis.sceneOutline.map((scene) => ({
+      sceneId: scene.sceneId,
+      title: scene.title,
+      summary: scene.summary,
+      chunkIndexes: scene.chunkIndexes,
+    })),
+    chunkSummaries: chunkSyntheses.map((chunk) => ({
+      index: chunk.index,
+      title: chunk.title,
+      summary: chunk.summary,
+      continuitySummary: chunk.continuitySummary,
+    })),
+  };
+
+  return [
+    'Build a compact section-writing guide before chapter drafting starts.',
+    '',
+    `Writing mode: ${WRITING_MODE_LABELS[writingMode]} / ${buildWritingModeInstruction(writingMode, 'section')}`,
+    '',
+    'Requirements:',
+    '1. The guide must be reusable across all upcoming sections.',
+    '2. Focus on tone, diction, dialogue handling, paragraph rhythm, perspective consistency, naming consistency, and continuity priorities.',
+    '3. Keep it compact, concrete, and actionable for section drafting.',
+    '4. Do not invent new plot facts, characters, settings, or endings.',
+    '5. The voiceGuide field must be a plain string, not an object or array.',
+    '6. Output JSON only.',
+    '',
+    '[Story synthesis]',
+    stringifyPromptData(storyContext),
+    '',
+    'Strictly output JSON:',
+    WRITING_PREPARATION_OUTPUT_SCHEMA,
+  ].join('\n');
 }
 
 export function buildFinalPolishUserPrompt(
@@ -868,6 +1015,122 @@ export function buildFinalPolishUserPrompt(
     fullNovel,
     '',
     '严格按以下 JSON 输出：',
+    FINAL_POLISH_OUTPUT_SCHEMA,
+  ].join('\n');
+}
+
+export function buildFinalPolishVoiceGuideUserPrompt(
+  storySynthesis: StorySynthesis,
+  sections: NovelSection[],
+  writingMode: WritingMode
+): string {
+  const storyContext = {
+    storyOverview: storySynthesis.storyOverview,
+    worldGuide: storySynthesis.worldGuide,
+    characterGuide: storySynthesis.characterGuide,
+    writingConstraints: storySynthesis.writingConstraints,
+    sceneOutline: storySynthesis.sceneOutline.map((scene) => ({
+      sceneId: scene.sceneId,
+      title: scene.title,
+      summary: scene.summary,
+      chunkIndexes: scene.chunkIndexes,
+    })),
+  };
+  const sectionSamples = sections.map((section) => ({
+    index: section.index,
+    title: section.title,
+    continuitySummary: section.continuitySummary,
+    excerpt: buildExcerpt(section.markdownBody, 700, 220),
+  }));
+
+  return [
+    'Build a compact novel-level voice guide for final polish.',
+    '',
+    `Writing mode: ${WRITING_MODE_LABELS[writingMode]} / ${buildWritingModeInstruction(writingMode, 'polish')}`,
+    '',
+    'Requirements:',
+    '1. The guide must be reusable for polishing sections one by one.',
+    '2. Focus on tone, diction, naming consistency, dialogue style, paragraph rhythm, and continuity priorities.',
+    '3. Preserve the story facts from the synthesis and the written sections. Do not invent new events.',
+    '4. Keep the guide compact, concrete, and actionable.',
+    '5. The voiceGuide field must be a plain string, not an object or array.',
+    '6. Output JSON only.',
+    '',
+    '[Story synthesis]',
+    stringifyPromptData(storyContext),
+    '',
+    '[Section samples]',
+    stringifyPromptData(sectionSamples),
+    '',
+    'Strictly output JSON:',
+    FINAL_POLISH_VOICE_GUIDE_OUTPUT_SCHEMA,
+  ].join('\n');
+}
+
+export function buildFinalPolishSectionUserPrompt(
+  storySynthesis: StorySynthesis,
+  sections: NovelSection[],
+  sectionListIndex: number,
+  voiceGuide: string,
+  writingMode: WritingMode
+): string {
+  const currentSection = sections[sectionListIndex];
+  const previousSection = sectionListIndex > 0 ? sections[sectionListIndex - 1] : null;
+  const nextSection = sectionListIndex < sections.length - 1 ? sections[sectionListIndex + 1] : null;
+  const scenePlan = storySynthesis.sceneOutline[currentSection.index] || storySynthesis.sceneOutline[sectionListIndex];
+  const sectionContext = {
+    storyOverview: storySynthesis.storyOverview,
+    worldGuide: storySynthesis.worldGuide,
+    characterGuide: storySynthesis.characterGuide,
+    writingConstraints: storySynthesis.writingConstraints,
+    currentScene: scenePlan
+      ? {
+          sceneId: scenePlan.sceneId,
+          title: scenePlan.title,
+          summary: scenePlan.summary,
+          chunkIndexes: scenePlan.chunkIndexes,
+        }
+      : null,
+    previousSection: previousSection
+      ? {
+          index: previousSection.index,
+          title: previousSection.title,
+          continuitySummary: previousSection.continuitySummary,
+          endingExcerpt: buildExcerpt(previousSection.markdownBody, 0, 260),
+        }
+      : null,
+    nextSection: nextSection
+      ? {
+          index: nextSection.index,
+          title: nextSection.title,
+          openingExcerpt: buildExcerpt(nextSection.markdownBody, 260, 0),
+        }
+      : null,
+  };
+
+  return [
+    `Polish section ${sectionListIndex + 1} of ${sections.length}.`,
+    '',
+    `Writing mode: ${WRITING_MODE_LABELS[writingMode]} / ${buildWritingModeInstruction(writingMode, 'polish')}`,
+    '',
+    'Requirements:',
+    '1. Only polish the current section.',
+    '2. Preserve plot facts, character relationships, and event order.',
+    '3. Keep length roughly similar; do not aggressively expand or compress the section.',
+    '4. Follow the voice guide so the book reads consistently from section to section.',
+    '5. Use nearby section context only for continuity, not for importing adjacent-section events.',
+    '6. Output JSON only.',
+    '',
+    '[Voice guide]',
+    voiceGuide,
+    '',
+    '[Continuity context]',
+    stringifyPromptData(sectionContext),
+    '',
+    '[Current section draft]',
+    currentSection.markdownBody || '',
+    '',
+    'Strictly output JSON:',
     FINAL_POLISH_OUTPUT_SCHEMA,
   ].join('\n');
 }

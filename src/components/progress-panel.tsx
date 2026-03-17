@@ -105,19 +105,6 @@ function statusLabel(
   return labels[status];
 }
 
-function buildSkippedFallbackNotice(stage: RequestStage): string | null {
-  switch (stage) {
-    case 'synthesize-chunks':
-      return '说明：当前内容来自跳过后的兜底分块综合，不是本阶段模型成功返回。';
-    case 'synthesize-story':
-      return '说明：当前内容来自跳过后的兜底整书综合，不是本阶段模型成功返回。';
-    case 'polish-novel':
-      return '说明：当前全书统稿阶段被跳过，因此导出内容仍然是章节写作完成后的拼接正文。';
-    default:
-      return null;
-  }
-}
-
 function buildDualStateNotice(stage: RequestStage): string | null {
   switch (stage) {
     case 'synthesize-chunks':
@@ -151,17 +138,17 @@ function getStatusPresentation(
     };
   }
 
-  if (options?.stage === 'synthesize-story' || options?.hasFallbackContent) {
-    return {
-      compactLabel,
-      secondaryLabel: '本阶段失败，已用兜底整书综合继续',
-    };
-  }
-
   if (options?.stage === 'polish-novel') {
     return {
       compactLabel,
       secondaryLabel: '本阶段已跳过，当前正文沿用章节写作结果',
+    };
+  }
+
+  if (options?.stage === 'synthesize-story' || options?.hasFallbackContent) {
+    return {
+      compactLabel,
+      secondaryLabel: '本阶段失败，已用兜底整书综合继续',
     };
   }
 
@@ -210,6 +197,86 @@ function extractPreview(text: string | undefined, maxLength = 180): string {
   return normalized.length > maxLength
     ? `${normalized.slice(0, maxLength).trim()}...`
     : normalized;
+}
+
+function getCompletedFinalPolishSectionCount(taskState: TaskState): number {
+  return (taskState.finalPolish.polishedSectionBodies || [])
+    .map((body) => String(body || '').trim())
+    .filter(Boolean)
+    .length;
+}
+
+function getFinalPolishProgressLabel(taskState: TaskState): string | null {
+  if (!taskState.finalPolish.totalSections) {
+    return null;
+  }
+
+  return `已润色 ${getCompletedFinalPolishSectionCount(taskState)} / ${taskState.finalPolish.totalSections} 节`;
+}
+
+function getFinalPolishPhaseLabel(taskState: TaskState): string | null {
+  switch (taskState.finalPolish.phase) {
+    case 'build-voice-guide':
+      return '当前阶段：生成统一口吻指南';
+    case 'polish-sections': {
+      if (!taskState.finalPolish.totalSections) {
+        return '当前阶段：逐章润色';
+      }
+
+      const currentIndex = Math.min(
+        taskState.finalPolish.currentSectionIndex + 1,
+        taskState.finalPolish.totalSections
+      );
+      return `当前阶段：润色第 ${currentIndex} / ${taskState.finalPolish.totalSections} 节`;
+    }
+    case 'complete':
+      return taskState.finalPolish.totalSections
+        ? `当前阶段：已完成 ${taskState.finalPolish.totalSections} 节统一润色`
+        : '当前阶段：已完成统稿';
+    default:
+      return null;
+  }
+}
+
+function getWritingPreparationPhaseLabel(taskState: TaskState): string | null {
+  switch (taskState.writingPreparation.status) {
+    case 'processing':
+      return '当前子步骤：写作前准备';
+    case 'success':
+      return '当前子步骤：已生成统一写作指南';
+    case 'skipped':
+      return '当前子步骤：已跳过模型准备，改用本地兜底指南';
+    case 'error':
+      return '当前子步骤：写作前准备失败';
+    default:
+      return taskState.novelSections.length > 0 ? '当前子步骤：待生成写作指南' : null;
+  }
+}
+
+function getWritingPreparationMeta(taskState: TaskState): string {
+  return taskState.writingPreparation.voiceGuide?.trim()
+    ? '为后续章节生成统一写作指南'
+    : '章节写作开始前的统一准备步骤';
+}
+
+function getDisplayedFinalPolishText(taskState: TaskState): string {
+  if (taskState.finalPolish.markdownBody?.trim()) {
+    return taskState.finalPolish.markdownBody.trim();
+  }
+
+  if (taskState.finalPolish.status !== 'skipped') {
+    const partialPolish = (taskState.finalPolish.polishedSectionBodies || [])
+      .map((body) => String(body || '').trim())
+      .filter(Boolean)
+      .join('\n\n')
+      .trim();
+
+    if (partialPolish) {
+      return partialPolish;
+    }
+  }
+
+  return taskState.fullNovel || '';
 }
 
 function speakerConfidenceLabel(confidence?: 'high' | 'medium' | 'low'): string {
@@ -360,10 +427,14 @@ function buildFinalPolishPreview(taskState: TaskState): string {
   const skippedNotice = taskState.finalPolish.status === 'skipped'
     ? buildDualStateNotice('polish-novel')
     : null;
+  const phaseLabel = getFinalPolishPhaseLabel(taskState);
+  const progressLabel = getFinalPolishProgressLabel(taskState);
 
   return [
     skippedNotice,
-    `统稿正文：${extractPreview(taskState.finalPolish.markdownBody || taskState.fullNovel, 260)}`,
+    phaseLabel,
+    progressLabel,
+    `统稿正文：${extractPreview(getDisplayedFinalPolishText(taskState), 260)}`,
   ].filter(Boolean).join('\n\n');
 }
 
@@ -371,11 +442,38 @@ function buildFinalPolishDetail(taskState: TaskState): string {
   const skippedNotice = taskState.finalPolish.status === 'skipped'
     ? buildDualStateNotice('polish-novel')
     : null;
+  const phaseLabel = getFinalPolishPhaseLabel(taskState);
+  const progressLabel = getFinalPolishProgressLabel(taskState);
 
   return [
     skippedNotice,
-    taskState.finalPolish.markdownBody || taskState.fullNovel || '尚未生成统稿正文',
+    phaseLabel,
+    progressLabel,
+    getDisplayedFinalPolishText(taskState) || '尚未生成统稿正文',
     taskState.finalPolish.error ? `错误：${taskState.finalPolish.error}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildWritingPreparationPreview(taskState: TaskState): string {
+  return [
+    getWritingPreparationPhaseLabel(taskState),
+    taskState.writingPreparation.voiceGuide?.trim()
+      ? `写作指南：${extractPreview(taskState.writingPreparation.voiceGuide, 220)}`
+      : '写作指南：尚未生成',
+    taskState.writingPreparation.status === 'skipped'
+      ? '当前章节会继续使用本地兜底指南，不是模型返回的写作前准备结果。'
+      : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildWritingPreparationDetail(taskState: TaskState): string {
+  return [
+    getWritingPreparationPhaseLabel(taskState),
+    taskState.writingPreparation.voiceGuide?.trim() || '尚未生成写作指南',
+    taskState.writingPreparation.status === 'skipped'
+      ? '说明：当前章节会继续使用本地兜底指南，不是模型返回的写作前准备结果。'
+      : '',
+    taskState.writingPreparation.error ? `错误：${taskState.writingPreparation.error}` : '',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -442,6 +540,7 @@ function canRegenerateItem(
 ): item is ActiveItem {
   return Boolean(
     item
+    && item.itemIndex >= 0
     && (item.status !== 'pending' || item.stage === 'polish-novel')
     && item.status !== 'processing'
     && onRegenerateItem
@@ -494,18 +593,32 @@ function buildStageItems(taskState: TaskState, stage: RequestStage): ActiveItem[
         },
       ];
     case 'write-sections':
-      return taskState.novelSections.map((section) => ({
-        key: `section-${section.index}`,
-        stage,
-        itemIndex: section.index,
-        label: section.title || `第 ${section.index + 1} 节`,
-        meta: `关联 ${section.chunkIndexes.length} 个分块`,
-        status: section.status,
-        error: section.error,
-        detailTitle: section.title || `第 ${section.index + 1} 节`,
-        detailContent: buildSectionDetail(section),
-        previewContent: buildSectionPreview(section),
-      }));
+      return [
+        {
+          key: 'writing-preparation',
+          stage,
+          itemIndex: -1,
+          label: '写作前准备',
+          meta: getWritingPreparationMeta(taskState),
+          status: taskState.writingPreparation.status,
+          error: taskState.writingPreparation.error,
+          detailTitle: '写作前准备详情',
+          detailContent: buildWritingPreparationDetail(taskState),
+          previewContent: buildWritingPreparationPreview(taskState),
+        },
+        ...taskState.novelSections.map((section) => ({
+          key: `section-${section.index}`,
+          stage,
+          itemIndex: section.index,
+          label: section.title || `第 ${section.index + 1} 节`,
+          meta: `关联 ${section.chunkIndexes.length} 个分块`,
+          status: section.status,
+          error: section.error,
+          detailTitle: section.title || `第 ${section.index + 1} 节`,
+          detailContent: buildSectionDetail(section),
+          previewContent: buildSectionPreview(section),
+        })),
+      ];
     case 'polish-novel':
       return [
         {
@@ -515,7 +628,10 @@ function buildStageItems(taskState: TaskState, stage: RequestStage): ActiveItem[
           label: '全书统稿 / 润色',
           meta: taskState.finalPolish.markdownBody?.trim()
             ? '已生成最终稿'
-            : '基于章节正文做全书层面的统一润色',
+            : [getFinalPolishPhaseLabel(taskState), getFinalPolishProgressLabel(taskState)]
+              .filter(Boolean)
+              .join(' · ')
+              || '基于章节正文做全书层面的统一润色',
           status: taskState.finalPolish.status,
           error: taskState.finalPolish.error,
           detailTitle: '全书统稿详情',
@@ -560,7 +676,7 @@ function buildStagePreview(taskState: TaskState, stage: RequestStage): StagePrev
       return {
         stage,
         title: '章节写作预览',
-        description: '查看每个章节的正文片段和承接摘要。',
+        description: '先查看写作前准备，再查看每个章节的正文片段和承接摘要。',
         emptyText: '章节写作开始后，这里会显示章节预览。',
         items,
       };
@@ -616,11 +732,23 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   const totalSections = taskState.novelSections.length > 0
     ? taskState.novelSections.length
     : taskState.chunkSyntheses.length;
+  const writingPreparationUnitCount = taskState.novelSections.length > 0 ? 1 : 0;
   const finalPolishUnitCount = taskState.config.enableFinalPolish ? 1 : 0;
-  const totalUnits = taskState.pageAnalyses.length + taskState.chunkSyntheses.length + 1 + totalSections + finalPolishUnitCount;
+  const totalUnits = taskState.pageAnalyses.length
+    + taskState.chunkSyntheses.length
+    + 1
+    + writingPreparationUnitCount
+    + totalSections
+    + finalPolishUnitCount;
   const completedUnits = countCompleted(taskState.pageAnalyses)
     + countCompleted(taskState.chunkSyntheses)
     + (taskState.globalSynthesis.status === 'success' || taskState.globalSynthesis.status === 'skipped' ? 1 : 0)
+    + (
+      writingPreparationUnitCount > 0
+      && (taskState.writingPreparation.status === 'success' || taskState.writingPreparation.status === 'skipped')
+        ? 1
+        : 0
+    )
     + countCompleted(taskState.novelSections)
     + (
       taskState.config.enableFinalPolish
@@ -718,6 +846,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
       stage: 'write-sections',
       title: '章节写作',
       value: `${countCompleted(taskState.novelSections)} / ${taskState.novelSections.length}`,
+      secondary: getWritingPreparationPhaseLabel(taskState) || undefined,
       hint: '点击查看章节预览',
     },
     ...(taskState.config.enableFinalPolish ? [{
@@ -787,7 +916,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   return (
     <>
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Layers className="h-4 w-4" />
             处理进度
@@ -817,7 +946,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
             </Badge>
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3">
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span>{completedUnits} / {totalUnits || 0} 个阶段单元</span>
@@ -853,13 +982,13 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
             </div>
           ) : null}
 
-          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+          <div className="flex gap-2 overflow-x-auto pb-1 text-xs sm:flex-wrap sm:overflow-visible">
             {stageCards.map((card) => (
               <button
                 key={card.stage}
                 type="button"
                 onClick={() => setSelectedStage(card.stage)}
-                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                className={`min-w-[148px] shrink-0 rounded-lg border px-3 py-2 text-left transition-colors sm:min-w-[160px] sm:flex-1 ${
                   taskState.currentStage === card.stage
                     ? 'border-primary/30 bg-primary/5'
                     : 'bg-muted/20 hover:bg-muted/40'
@@ -905,7 +1034,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
           ) : null}
 
           {activeItems.length > 0 ? (
-            <div className="max-h-[280px] overflow-y-auto overscroll-contain pr-2">
+            <div className="max-h-[240px] overflow-y-auto overscroll-contain pr-2">
               <div className="space-y-1.5">
                 {activeItems.map((item) => {
                   const statusPresentation = getItemStatusPresentation(item);
@@ -915,10 +1044,10 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                     key={item.key}
                     type="button"
                     onClick={() => openItemDetail(item)}
-                    className={`w-full rounded p-2 text-left text-sm transition-colors ${
+                    className={`w-full rounded-lg border bg-background/60 p-2.5 text-left text-sm transition-colors ${
                       item.status === 'processing' && taskState.status === 'running'
                         ? 'border border-primary/20 bg-primary/5'
-                        : 'hover:bg-muted/50'
+                        : 'border-border/70 hover:bg-muted/50'
                     }`}
                   >
                     <div className="flex items-center gap-2">

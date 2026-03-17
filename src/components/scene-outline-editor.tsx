@@ -15,6 +15,13 @@ interface DraftScene extends ScenePlan {
   chunkIndexesText: string;
 }
 
+type SceneInsight = {
+  chunkCount: number;
+  summaryLength: number;
+  shouldSuggestMerge: boolean;
+  hint: string | null;
+};
+
 interface SceneOutlineEditorProps {
   sceneOutline: ScenePlan[];
   chunkSyntheses: ChunkSynthesis[];
@@ -38,6 +45,138 @@ function parseChunkIndexes(chunkIndexesText: string): number[] {
     .map((value) => Math.trunc(value) - 1);
 
   return Array.from(new Set(indexes)).sort((left, right) => left - right);
+}
+
+function isGenericSceneTitle(title: string): boolean {
+  return /^第\s*\d+\s*节$/u.test(title.trim());
+}
+
+function buildChunkIndexesText(indexes: number[]): string {
+  return Array.from(new Set(indexes))
+    .sort((left, right) => left - right)
+    .map((index) => index + 1)
+    .join(', ');
+}
+
+function chooseMergedSceneTitle(previous: DraftScene, current: DraftScene, nextIndex: number): string {
+  const previousTitle = previous.title.trim();
+  const currentTitle = current.title.trim();
+
+  if (!previousTitle) {
+    return currentTitle || `第 ${nextIndex} 节`;
+  }
+
+  if (!currentTitle || isGenericSceneTitle(currentTitle)) {
+    return previousTitle;
+  }
+
+  if (isGenericSceneTitle(previousTitle)) {
+    return currentTitle;
+  }
+
+  if (
+    /终章|尾声|幕间|收束|结尾/u.test(currentTitle)
+    && !previousTitle.includes(currentTitle)
+  ) {
+    return `${previousTitle} · ${currentTitle}`;
+  }
+
+  return previousTitle;
+}
+
+function mergeDraftScenes(previous: DraftScene, current: DraftScene, nextIndex: number): DraftScene {
+  const mergedChunkIndexes = [
+    ...parseChunkIndexes(previous.chunkIndexesText),
+    ...parseChunkIndexes(current.chunkIndexesText),
+  ];
+  const mergedSummary = [previous.summary.trim(), current.summary.trim()].filter(Boolean).join('\n\n');
+
+  return {
+    sceneId: previous.sceneId || `scene-${nextIndex}`,
+    title: chooseMergedSceneTitle(previous, current, nextIndex),
+    summary: mergedSummary,
+    chunkIndexes: Array.from(new Set(mergedChunkIndexes)).sort((left, right) => left - right),
+    chunkIndexesText: buildChunkIndexesText(mergedChunkIndexes),
+  };
+}
+
+function buildSceneInsight(scene: DraftScene, index: number, totalScenes: number): SceneInsight {
+  const chunkCount = parseChunkIndexes(scene.chunkIndexesText).length;
+  const summaryLength = scene.summary.trim().length;
+  const title = scene.title.trim();
+  const isTailScene = index === totalScenes - 1;
+  const isLeadingScene = index === 0;
+  const isFinaleLike = /终章|尾声|幕间|收束|结尾/u.test(title);
+  const isIntroLike = /空白|标题|扉页|封面|无实质|引子/u.test(`${title}\n${scene.summary}`.trim());
+  const shouldSuggestMerge = chunkCount === 1 && (
+    summaryLength < 180
+    || isTailScene
+    || isLeadingScene
+    || isFinaleLike
+    || isIntroLike
+  );
+
+  if (!shouldSuggestMerge) {
+    return {
+      chunkCount,
+      summaryLength,
+      shouldSuggestMerge: false,
+      hint: null,
+    };
+  }
+
+  return {
+    chunkCount,
+    summaryLength,
+    shouldSuggestMerge: true,
+    hint: isLeadingScene && isIntroLike
+      ? '这个场景更像封面、标题页或引子，单独成节通常会显得太碎。可以考虑并入下一场。'
+      : isTailScene
+      ? '这个场景只有 1 个分块，且位于末尾，最后成文可能偏短。可以考虑并入上一场，减少“尾巴感”。'
+      : '这个场景只有 1 个分块，成文可能偏短。若它和上一场承接很紧，可以考虑合并。',
+  };
+}
+
+function optimizeDraftScenes(scenes: DraftScene[]): DraftScene[] {
+  const workingScenes = scenes.map((scene) => ({
+    ...scene,
+    chunkIndexesText: buildChunkIndexesText(parseChunkIndexes(scene.chunkIndexesText)),
+  }));
+
+  if (workingScenes.length > 1) {
+    const leadingInsight = buildSceneInsight(workingScenes[0], 0, workingScenes.length);
+    if (leadingInsight.shouldSuggestMerge && /封面|标题页|引子/u.test(leadingInsight.hint || '')) {
+      const leadingScene = workingScenes.shift();
+      const nextScene = workingScenes.shift();
+
+      if (leadingScene && nextScene) {
+        workingScenes.unshift({
+          ...mergeDraftScenes(leadingScene, nextScene, 1),
+          title: nextScene.title.trim() || leadingScene.title.trim() || '第 1 节',
+        });
+      }
+    }
+  }
+
+  return workingScenes.reduce<DraftScene[]>((result, scene, index) => {
+    if (result.length === 0) {
+      result.push(scene);
+      return result;
+    }
+
+    const insight = buildSceneInsight(scene, index, workingScenes.length);
+    if (!insight.shouldSuggestMerge) {
+      result.push(scene);
+      return result;
+    }
+
+    const previous = result[result.length - 1];
+    result[result.length - 1] = mergeDraftScenes(previous, scene, result.length);
+    return result;
+  }, []).map((scene, index) => ({
+    ...scene,
+    sceneId: `scene-${index + 1}`,
+  }));
 }
 
 export function SceneOutlineEditor({
@@ -64,6 +203,10 @@ export function SceneOutlineEditor({
     const usedChunks = new Set(draftScenes.flatMap((scene) => parseChunkIndexes(scene.chunkIndexesText)));
     return usedChunks.size;
   }, [draftScenes]);
+
+  const sceneInsights = useMemo(() => (
+    draftScenes.map((scene, index) => buildSceneInsight(scene, index, draftScenes.length))
+  ), [draftScenes]);
 
   const buildNextScene = (): DraftScene => {
     const usedChunks = new Set(draftScenes.flatMap((scene) => parseChunkIndexes(scene.chunkIndexesText)));
@@ -169,25 +312,63 @@ export function SceneOutlineEditor({
       <CardContent className="space-y-4">
         {draftScenes.map((scene, index) => {
           const chunkIndexes = parseChunkIndexes(scene.chunkIndexesText);
+          const sceneInsight = sceneInsights[index];
 
           return (
             <div key={scene.sceneId || `scene-${index}`} className="space-y-3 rounded-xl border bg-background/90 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm font-medium">场景 {index + 1}</div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-2 text-destructive"
-                  onClick={() => {
-                    setDraftScenes((prev) => prev.filter((_, sceneIndex) => sceneIndex !== index));
-                    setDirty(true);
-                  }}
-                  disabled={disabled || draftScenes.length <= 1}
-                >
-                  <Trash2 className="mr-1 h-3.5 w-3.5" />
-                  删除
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {index > 0 ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2"
+                      onClick={() => {
+                        setDraftScenes((prev) => {
+                          const previous = prev[index - 1];
+                          const current = prev[index];
+                          if (!previous || !current) {
+                            return prev;
+                          }
+
+                          const merged = mergeDraftScenes(previous, current, index);
+                          return prev
+                            .map((item, sceneIndex) => {
+                              if (sceneIndex === index - 1) {
+                                return merged;
+                              }
+                              return item;
+                            })
+                            .filter((_, sceneIndex) => sceneIndex !== index)
+                            .map((item, sceneIndex) => ({
+                              ...item,
+                              sceneId: `scene-${sceneIndex + 1}`,
+                            }));
+                        });
+                        setDirty(true);
+                      }}
+                      disabled={disabled}
+                    >
+                      合并到上一场
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 px-2 text-destructive"
+                    onClick={() => {
+                      setDraftScenes((prev) => prev.filter((_, sceneIndex) => sceneIndex !== index));
+                      setDirty(true);
+                    }}
+                    disabled={disabled || draftScenes.length <= 1}
+                  >
+                    <Trash2 className="mr-1 h-3.5 w-3.5" />
+                    删除
+                  </Button>
+                </div>
               </div>
 
               <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -227,12 +408,20 @@ export function SceneOutlineEditor({
               </div>
 
               <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">分块 {sceneInsight.chunkCount}</Badge>
+                <Badge variant="outline">摘要 {sceneInsight.summaryLength} 字</Badge>
                 {chunkIndexes.map((chunkIndex) => (
                   <Badge key={`${scene.sceneId}-${chunkIndex}`} variant="secondary">
                     #{chunkIndex + 1} {chunkTitles.get(chunkIndex) || `分块 ${chunkIndex + 1}`}
                   </Badge>
                 ))}
               </div>
+
+              {sceneInsight.hint ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  {sceneInsight.hint}
+                </div>
+              ) : null}
             </div>
           );
         })}
@@ -249,6 +438,23 @@ export function SceneOutlineEditor({
           >
             <Plus className="mr-1 h-4 w-4" />
             新增场景
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const nextScenes = optimizeDraftScenes(draftScenes);
+              const changed = JSON.stringify(nextScenes) !== JSON.stringify(draftScenes);
+              setDraftScenes(nextScenes);
+              if (changed) {
+                setDirty(true);
+                toast.success('已按较短场景自动整理');
+              }
+            }}
+            disabled={disabled || draftScenes.length <= 1}
+          >
+            智能整理
           </Button>
 
           <Button type="button" variant="outline" onClick={handleSave} disabled={disabled || !dirty}>

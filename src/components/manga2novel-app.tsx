@@ -254,6 +254,10 @@ export default function Manga2NovelApp() {
           ? { label: '整书综合', error: taskState.globalSynthesis.error }
           : null;
       case 'write-sections': {
+        if (taskState.writingPreparation.status === 'error' && taskState.writingPreparation.error) {
+          return { label: '写作前准备', error: taskState.writingPreparation.error };
+        }
+
         const failedSection = taskState.novelSections[taskState.currentChunkIndex];
 
         return failedSection?.error
@@ -275,6 +279,8 @@ export default function Manga2NovelApp() {
     taskState.globalSynthesis.error,
     taskState.novelSections,
     taskState.pageAnalyses,
+    taskState.writingPreparation.error,
+    taskState.writingPreparation.status,
   ]);
   const currentFailureAdvice = useMemo(() => getTroubleshootingAdvice(currentFailure?.error), [currentFailure?.error]);
   const showRecoveryResume = recoveryNotice?.type === 'interrupted-task' && isPaused;
@@ -381,7 +387,7 @@ export default function Manga2NovelApp() {
     <Dialog open={lastRequestOpen} onOpenChange={setLastRequestOpen}>
       <DialogTrigger
         render={(
-          <Button type="button" variant="outline" disabled={!lastAIRequest}>
+          <Button type="button" variant="outline" size="sm" className="h-9" disabled={!lastAIRequest}>
             <Send className="mr-1 h-4 w-4" />
             查看上次发送
           </Button>
@@ -469,20 +475,20 @@ export default function Manga2NovelApp() {
     <div className="min-h-screen bg-background">
       <Toaster position="top-right" richColors />
 
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2.5">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
-              <BookOpenText className="h-6 w-6 text-primary" />
-              <h1 className="text-xl font-bold">Manga2Novel</h1>
+              <BookOpenText className="h-5 w-5 text-primary" />
+              <h1 className="text-lg font-bold">Manga2Novel</h1>
               <span className="hidden text-xs text-muted-foreground sm:inline">漫画转小说 · 纯前端 AI 工具</span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               {shouldShowProxyStatus ? (
                 <div
                   className={cn(
-                    'inline-flex h-10 items-center gap-2 rounded-xl border px-3 text-sm',
+                    'inline-flex h-9 items-center gap-2 rounded-lg border px-2.5 text-xs',
                     proxyStatus?.available
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                       : 'border-amber-200 bg-amber-50 text-amber-700'
@@ -507,6 +513,8 @@ export default function Manga2NovelApp() {
 
               <Button
                 type="button"
+                size="sm"
+                className="h-9"
                 variant={taskState.config.autoSkipOnError ? 'default' : 'outline'}
                 onClick={() => saveOrchestratorConfig({ autoSkipOnError: !taskState.config.autoSkipOnError })}
               >
@@ -517,14 +525,14 @@ export default function Manga2NovelApp() {
               {requestTraceDialog}
 
               {!isRunning && !isPaused && !isCompleted && (
-                <Button onClick={handleStart} disabled={!canStart} className="hidden lg:inline-flex">
+                <Button onClick={handleStart} size="sm" disabled={!canStart} className="hidden h-9 lg:inline-flex">
                   <Play className="mr-1 h-4 w-4" />
                   开始转换
                 </Button>
               )}
 
               {isRunning && (
-                <Button variant="secondary" onClick={pause}>
+                <Button variant="secondary" size="sm" className="h-9" onClick={pause}>
                   <Pause className="mr-1 h-4 w-4" />
                   暂停
                 </Button>
@@ -532,15 +540,15 @@ export default function Manga2NovelApp() {
 
               {isPaused && (
                 <>
-                  <Button onClick={handleResume} disabled={needsOutlineConfirmation}>
+                  <Button onClick={handleResume} size="sm" className="h-9" disabled={needsOutlineConfirmation}>
                     <Play className="mr-1 h-4 w-4" />
                     继续
                   </Button>
-                  <Button variant="outline" onClick={handleSkip} disabled={needsOutlineConfirmation}>
+                  <Button variant="outline" size="sm" className="h-9" onClick={handleSkip} disabled={needsOutlineConfirmation}>
                     <SkipForward className="mr-1 h-4 w-4" />
                     跳过
                   </Button>
-                  <Button variant="outline" onClick={handleRetry}>
+                  <Button variant="outline" size="sm" className="h-9" onClick={handleRetry}>
                     <RotateCcw className="mr-1 h-4 w-4" />
                     重试
                   </Button>
@@ -548,7 +556,7 @@ export default function Manga2NovelApp() {
               )}
 
               {(isPaused || isCompleted) && (
-                <Button variant="ghost" onClick={reset}>
+                <Button variant="ghost" size="sm" className="h-9" onClick={reset}>
                   <RefreshCw className="mr-1 h-4 w-4" />
                   重置
                 </Button>
@@ -558,7 +566,7 @@ export default function Manga2NovelApp() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-4 pb-28 lg:pb-6">
+      <main className="mx-auto max-w-7xl px-4 py-3 pb-28 lg:py-4 lg:pb-6">
         {recoveryNotice ? (
           <Card
             className={cn(
@@ -591,11 +599,11 @@ export default function Manga2NovelApp() {
 
         <div
           className={cn(
-            'grid grid-cols-1 gap-6',
-            hasPreviewContent && 'xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]'
+            'grid grid-cols-1 gap-4 xl:items-start',
+            hasPreviewContent && 'xl:grid-cols-[minmax(0,0.96fr)_minmax(380px,1.04fr)]'
           )}
         >
-          <div className="space-y-5">
+          <div className="space-y-4">
             <APIConfigPanel
               config={apiConfig}
               profiles={apiProfiles}
@@ -608,7 +616,7 @@ export default function Manga2NovelApp() {
               disabled={isRunning}
             />
 
-            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
               <ImageUploadPanel
                 images={images}
                 onAdd={addImages}
@@ -659,8 +667,8 @@ export default function Manga2NovelApp() {
                 <ProgressPanel taskState={taskState} onRegenerateItem={handleRegenerateItem} />
               </div>
             </div>
-            <Card className="border-dashed bg-muted/10">
-              <CardHeader className="pb-4">
+            <Card className="border-dashed bg-muted/5">
+              <CardHeader className="pb-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="space-y-1">
                     <CardTitle className="flex flex-wrap items-center gap-2 text-base">
@@ -685,7 +693,7 @@ export default function Manga2NovelApp() {
 
               {advancedOpen ? (
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.02fr)_minmax(0,0.98fr)]">
                     <CreativeSettingsPanel
                       settings={taskState.creativeSettings}
                       presets={creativePresets}

@@ -17,6 +17,7 @@
   ScenePlan,
   StorySynthesis,
   TaskState,
+  WritingPreparation,
 } from './types';
 import {
   DEFAULT_CREATIVE_SETTINGS,
@@ -24,6 +25,7 @@ import {
   DEFAULT_MEMORY_STATE,
   DEFAULT_ORCHESTRATOR_CONFIG,
   DEFAULT_STORY_SYNTHESIS,
+  DEFAULT_WRITING_PREPARATION,
   PROVIDER_DISPLAY_NAMES,
   REQUEST_STAGE_LABELS,
   resolveStageAPIConfig,
@@ -34,11 +36,15 @@ import { callAIText, extractJsonValue } from './api-adapter';
 import {
   buildContextualChunkSynthesisPrompt,
   buildContextualGlobalSynthesisPrompt,
-  buildFinalPolishSystemPrompt,
-  buildFinalPolishUserPrompt,
+  buildFinalPolishSectionSystemPrompt,
+  buildFinalPolishSectionUserPrompt,
+  buildFinalPolishVoiceGuideSystemPrompt,
+  buildFinalPolishVoiceGuideUserPrompt,
   buildPageAnalysisPrompt,
   buildSectionSystemPrompt,
   buildSectionUserPrompt,
+  buildWritingPreparationSystemPrompt,
+  buildWritingPreparationUserPrompt,
 } from './prompts';
 
 export type TaskEventType =
@@ -120,8 +126,24 @@ const PAGE_ANALYSIS_TEMPERATURE = 0.2;
 const SYNTHESIS_TEMPERATURE = 0.2;
 const PAGE_ANALYSIS_MAX_TOKENS = 2048;
 const SYNTHESIS_MAX_TOKENS = 6144;
+const WRITING_PREPARATION_MAX_TOKENS = 2048;
 const WRITING_MAX_TOKENS = 4096;
 const PAGE_ANALYSIS_BATCH_TIMEOUT_MS = 90_000;
+const CHUNK_SYNTHESIS_TIMEOUT_MS = 180_000;
+const STORY_SYNTHESIS_TIMEOUT_MS = 240_000;
+const WRITING_PREPARATION_TIMEOUT_MS = 120_000;
+const SECTION_WRITING_TIMEOUT_MS = 300_000;
+const FINAL_POLISH_VOICE_GUIDE_TIMEOUT_MS = 150_000;
+const FINAL_POLISH_SECTION_TIMEOUT_BASE_MS = 180_000;
+const FINAL_POLISH_SECTION_TIMEOUT_MAX_MS = 420_000;
+const FINAL_POLISH_MIN_SPLIT_LENGTH = 600;
+const FINAL_POLISH_MAX_SPLIT_DEPTH = 3;
+const FINAL_POLISH_COMPACT_STORY_OVERVIEW_LENGTH = 1200;
+const FINAL_POLISH_COMPACT_WORLD_GUIDE_LENGTH = 900;
+const FINAL_POLISH_COMPACT_CHARACTER_GUIDE_LENGTH = 1200;
+const FINAL_POLISH_COMPACT_SCENE_SUMMARY_LENGTH = 260;
+const FINAL_POLISH_COMPACT_CONSTRAINT_COUNT = 8;
+const FINAL_POLISH_COMPACT_CONSTRAINT_LENGTH = 160;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -143,6 +165,86 @@ function toStringArray(value: unknown): string[] {
   }
 
   return [];
+}
+
+function formatGuideLabel(key: string): string {
+  const normalized = key
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+  return normalized || 'guide';
+}
+
+function stripCodeFence(text: string): string {
+  return text
+    .replace(/^\s*```(?:json|markdown|text)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+}
+
+function stripCitationMarkers(text: string): string {
+  return text
+    .replace(/\s*\[(?:\d+(?:\s*[,/-]\s*\d+)*)\](?=[\s)\]}>.,;:!?，。！？；：、]|$)/g, '')
+    .replace(/\[\^\d+\]/g, '')
+    .replace(/[ \t]+([，。！？；：、,.!?;:])/g, '$1')
+    .trim();
+}
+
+function stripJapaneseKanaFragments(text: string): string {
+  return text
+    .replace(/[ぁ-ゟ゠-ヿｦ-ﾟー]+/gu, '')
+    .replace(/[“”"'`「」『』（）()【】\[\]《》〈〉]\s*[“”"'`「」『』（）()【】\[\]《》〈〉]/g, '')
+    .replace(/(^|[\n（(【\[「『《〈])([，。！？；：、,.!?;:~〜…]+)/g, '$1')
+    .replace(/([，。！？；：、,.!?;:~〜…])(?:\s*\1)+/g, '$1')
+    .replace(/([—-])(?:\s*\1){2,}/g, '$1$1')
+    .replace(/([，、,])(?=\s*(?:\n|$))/g, '')
+    .replace(/[ \t]+([，。！？；：、,.!?;:])/g, '$1')
+    .replace(/([（(【\[「『《〈])\s+/g, '$1')
+    .replace(/\s+([）)】\]」』》〉])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+function sanitizeNarrativeText(value: string | undefined): string {
+  return stripJapaneseKanaFragments(stripCitationMarkers(stripCodeFence(String(value || ''))))
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function sanitizeNarrativeArray(value: unknown): string[] {
+  return toStringArray(value)
+    .map((item) => sanitizeNarrativeText(item))
+    .filter(Boolean);
+}
+
+function normalizeGuideText(value: unknown): string {
+  if (typeof value === 'string') {
+    return sanitizeNarrativeText(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeGuideText(item))
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  if (isRecord(value)) {
+    return Object.entries(value)
+      .map(([key, item]) => {
+        const normalizedItem = normalizeGuideText(item);
+        if (!normalizedItem) {
+          return '';
+        }
+
+        return `${formatGuideLabel(key)}: ${normalizedItem}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  return '';
 }
 
 function toNumberArray(value: unknown): number[] {
@@ -170,6 +272,77 @@ function normalizeChunkIndexes(indexes: number[], chunkCount: number): number[] 
     .filter((index) => index >= 0 && index <= maxIndex)
     .sort((left, right) => left - right);
   return Array.from(new Set(normalized));
+}
+
+function compactText(value: string | undefined, maxLength: number): string {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function compactTextArray(values: string[], maxItems: number, maxLength: number): string[] {
+  return values
+    .map((value) => compactText(value, maxLength))
+    .filter(Boolean)
+    .slice(0, Math.max(0, maxItems));
+}
+
+function isPreferredSplitBoundary(text: string, index: number): boolean {
+  if (index <= 0 || index >= text.length) {
+    return false;
+  }
+
+  const previousChar = text[index - 1];
+  const currentChar = text[index];
+
+  return (
+    (previousChar === '\n' && currentChar === '\n')
+    || /[。！？!?；;，,、]/.test(previousChar)
+    || (/\s/.test(previousChar) && !/\s/.test(currentChar))
+  );
+}
+
+function splitFinalPolishDraft(text: string): string[] | null {
+  const normalized = text.trim();
+  if (!normalized || normalized.length < FINAL_POLISH_MIN_SPLIT_LENGTH * 2) {
+    return null;
+  }
+
+  const midpoint = Math.floor(normalized.length / 2);
+  const maxRadius = Math.min(800, midpoint - 1, normalized.length - midpoint - 1);
+  let splitIndex = midpoint;
+
+  for (let radius = 0; radius <= maxRadius; radius += 1) {
+    const candidateIndexes = radius === 0
+      ? [midpoint]
+      : [midpoint - radius, midpoint + radius];
+
+    for (const candidateIndex of candidateIndexes) {
+      if (
+        candidateIndex <= FINAL_POLISH_MIN_SPLIT_LENGTH
+        || normalized.length - candidateIndex <= FINAL_POLISH_MIN_SPLIT_LENGTH
+      ) {
+        continue;
+      }
+
+      if (isPreferredSplitBoundary(normalized, candidateIndex)) {
+        splitIndex = candidateIndex;
+        radius = maxRadius + 1;
+        break;
+      }
+    }
+  }
+
+  const left = normalized.slice(0, splitIndex).trim();
+  const right = normalized.slice(splitIndex).trim();
+  if (!left || !right) {
+    return null;
+  }
+
+  return [left, right];
 }
 
 function normalizeCharacterCue(value: unknown): CharacterCue {
@@ -315,10 +488,10 @@ function parseChunkSynthesisResult(rawText: string): Pick<ChunkSynthesis, 'title
   const parsed = extractJsonValue<Record<string, unknown>>(rawText);
 
   return {
-    title: toString(parsed.title),
-    summary: toString(parsed.summary),
-    keyDevelopments: toStringArray(parsed.keyDevelopments),
-    continuitySummary: toString(parsed.continuitySummary),
+    title: sanitizeNarrativeText(toString(parsed.title)),
+    summary: sanitizeNarrativeText(toString(parsed.summary)),
+    keyDevelopments: sanitizeNarrativeArray(parsed.keyDevelopments),
+    continuitySummary: sanitizeNarrativeText(toString(parsed.continuitySummary)),
   };
 }
 
@@ -332,26 +505,26 @@ function parseStorySynthesisResult(rawText: string, chunkCount: number): Pick<St
 
       return {
         sceneId: toString(record.sceneId, `scene-${index + 1}`),
-        title: toString(record.title, `第 ${index + 1} 节`),
-        summary: toString(record.summary),
+        title: sanitizeNarrativeText(toString(record.title, `第 ${index + 1} 节`)),
+        summary: sanitizeNarrativeText(toString(record.summary)),
         chunkIndexes,
       };
     })
     .filter((scene) => scene.chunkIndexes.length > 0);
 
   return {
-    storyOverview: toString(parsed.storyOverview),
-    worldGuide: toString(parsed.worldGuide),
-    characterGuide: toString(parsed.characterGuide),
+    storyOverview: sanitizeNarrativeText(toString(parsed.storyOverview)),
+    worldGuide: sanitizeNarrativeText(toString(parsed.worldGuide)),
+    characterGuide: sanitizeNarrativeText(toString(parsed.characterGuide)),
     sceneOutline,
-    writingConstraints: toStringArray(parsed.writingConstraints),
+    writingConstraints: sanitizeNarrativeArray(parsed.writingConstraints),
   };
 }
 
 function parseSectionResult(rawText: string): { novelText: string; continuitySummary: string } {
   try {
     const parsed = extractJsonValue<Record<string, unknown>>(rawText);
-    const novelText = toString(parsed.novelText);
+    const novelText = sanitizeNarrativeText(toString(parsed.novelText));
 
     if (!novelText) {
       throw new Error('The section writer returned JSON without novelText.');
@@ -359,11 +532,11 @@ function parseSectionResult(rawText: string): { novelText: string; continuitySum
 
     return {
       novelText,
-      continuitySummary: toString(parsed.continuitySummary),
+      continuitySummary: sanitizeNarrativeText(toString(parsed.continuitySummary)),
     };
   } catch {
     return {
-      novelText: rawText.trim(),
+      novelText: sanitizeNarrativeText(rawText),
       continuitySummary: '',
     };
   }
@@ -372,7 +545,7 @@ function parseSectionResult(rawText: string): { novelText: string; continuitySum
 function parseFinalPolishResult(rawText: string): { novelText: string } {
   try {
     const parsed = extractJsonValue<Record<string, unknown>>(rawText);
-    const novelText = toString(parsed.novelText);
+    const novelText = sanitizeNarrativeText(toString(parsed.novelText));
 
     if (!novelText) {
       throw new Error('The final polish stage returned JSON without novelText.');
@@ -380,12 +553,52 @@ function parseFinalPolishResult(rawText: string): { novelText: string } {
 
     return { novelText };
   } catch {
-    const novelText = rawText.trim();
+    const novelText = sanitizeNarrativeText(rawText);
     if (!novelText) {
       throw new Error('The final polish stage returned an empty result.');
     }
 
     return { novelText };
+  }
+}
+
+function parseFinalPolishVoiceGuideResult(rawText: string): { voiceGuide: string } {
+  try {
+    const parsed = extractJsonValue<Record<string, unknown>>(rawText);
+    const voiceGuide = normalizeGuideText(parsed.voiceGuide);
+
+    if (!voiceGuide) {
+      throw new Error('The final polish voice-guide stage returned JSON without voiceGuide.');
+    }
+
+    return { voiceGuide };
+  } catch {
+    const voiceGuide = normalizeGuideText(rawText);
+    if (!voiceGuide) {
+      throw new Error('The final polish voice-guide stage returned an empty result.');
+    }
+
+    return { voiceGuide };
+  }
+}
+
+function parseWritingPreparationResult(rawText: string): { voiceGuide: string } {
+  try {
+    const parsed = extractJsonValue<Record<string, unknown>>(rawText);
+    const voiceGuide = normalizeGuideText(parsed.voiceGuide);
+
+    if (!voiceGuide) {
+      throw new Error('The writing-preparation stage returned JSON without voiceGuide.');
+    }
+
+    return { voiceGuide };
+  } catch {
+    const voiceGuide = normalizeGuideText(rawText);
+    if (!voiceGuide) {
+      throw new Error('The writing-preparation stage returned an empty result.');
+    }
+
+    return { voiceGuide };
   }
 }
 
@@ -428,6 +641,34 @@ function createFallbackStorySynthesis(chunkSyntheses: ChunkSynthesis[]): Pick<St
   };
 }
 
+function createFallbackWritingPreparation(
+  storySynthesis: StorySynthesis,
+  writingMode: CreativeSettings['writingMode']
+): { voiceGuide: string } {
+  const guideLines = [
+    `写作模式：${writingMode === 'literary' ? '文学改写' : '忠实转写'}。`,
+    storySynthesis.storyOverview
+      ? `整体基调以整书概览为准：${compactText(storySynthesis.storyOverview, 220)}`
+      : '整体基调以现有场景资料为准，不额外扩展关键剧情。',
+    storySynthesis.characterGuide
+      ? `人物关系与称呼保持一致：${compactText(storySynthesis.characterGuide, 180)}`
+      : '人物称呼、关系和立场前后保持一致，不要临时改名或改设定。',
+    storySynthesis.worldGuide
+      ? `世界与场景描写遵循现有设定：${compactText(storySynthesis.worldGuide, 160)}`
+      : '世界观与场景信息只采用现有资料，不新增规则。',
+    '章节之间优先保证承接自然，连续场景的情绪、动作和信息递进不要断裂。',
+    '不新增关键事件、角色关系、世界规则和结局信息。',
+  ];
+
+  if (storySynthesis.writingConstraints.length > 0) {
+    guideLines.push(`额外约束：${storySynthesis.writingConstraints.slice(0, 6).join('；')}`);
+  }
+
+  return {
+    voiceGuide: guideLines.filter(Boolean).join('\n'),
+  };
+}
+
 function createSectionsFromSceneOutline(sceneOutline: ScenePlan[], chunkSyntheses: ChunkSynthesis[]): NovelSection[] {
   const fallbackSections = chunkSyntheses.map((chunk) => ({
     index: chunk.index,
@@ -450,12 +691,127 @@ function createSectionsFromSceneOutline(sceneOutline: ScenePlan[], chunkSynthese
   }));
 }
 
+function isGenericScenePlanTitle(title: string): boolean {
+  return /^第\s*\d+\s*节$/u.test(title.trim());
+}
+
+function chooseMergedScenePlanTitle(previous: ScenePlan, current: ScenePlan, nextIndex: number): string {
+  const previousTitle = previous.title.trim();
+  const currentTitle = current.title.trim();
+
+  if (!previousTitle) {
+    return currentTitle || `第 ${nextIndex} 节`;
+  }
+
+  if (!currentTitle || isGenericScenePlanTitle(currentTitle)) {
+    return previousTitle;
+  }
+
+  if (isGenericScenePlanTitle(previousTitle)) {
+    return currentTitle;
+  }
+
+  if (
+    /终章|尾声|幕间|收束|结尾/u.test(currentTitle)
+    && !previousTitle.includes(currentTitle)
+  ) {
+    return `${previousTitle} · ${currentTitle}`;
+  }
+
+  return previousTitle;
+}
+
+function shouldMergeGeneratedScene(scene: ScenePlan, index: number, totalScenes: number): boolean {
+  const summaryLength = scene.summary.trim().length;
+  const isTailScene = index === totalScenes - 1;
+  const isFinaleLike = /终章|尾声|幕间|收束|结尾/u.test(scene.title.trim());
+
+  return scene.chunkIndexes.length === 1 && (
+    summaryLength < 160
+    || (isTailScene && summaryLength < 260)
+    || isFinaleLike
+  );
+}
+
+function shouldMergeLeadingGeneratedScene(scene: ScenePlan, totalScenes: number): boolean {
+  if (totalScenes <= 1 || scene.chunkIndexes.length !== 1) {
+    return false;
+  }
+
+  const combinedText = `${scene.title}\n${scene.summary}`.trim();
+  return (
+    scene.summary.trim().length < 140
+    || /空白|标题|扉页|封面|无实质|引子/u.test(combinedText)
+  );
+}
+
+function optimizeGeneratedSceneOutline(sceneOutline: ScenePlan[]): ScenePlan[] {
+  if (sceneOutline.length <= 1) {
+    return sceneOutline;
+  }
+
+  const workingSceneOutline = sceneOutline.map((scene) => ({
+    ...scene,
+    chunkIndexes: [...scene.chunkIndexes],
+  }));
+
+  if (shouldMergeLeadingGeneratedScene(workingSceneOutline[0], workingSceneOutline.length)) {
+    const leadingScene = workingSceneOutline.shift();
+    const nextScene = workingSceneOutline.shift();
+
+    if (leadingScene && nextScene) {
+      workingSceneOutline.unshift({
+        sceneId: nextScene.sceneId || 'scene-1',
+        title: nextScene.title.trim() || leadingScene.title.trim() || '第 1 节',
+        summary: [leadingScene.summary.trim(), nextScene.summary.trim()].filter(Boolean).join('\n\n'),
+        chunkIndexes: normalizeChunkIndexes(
+          [...leadingScene.chunkIndexes, ...nextScene.chunkIndexes],
+          Number.MAX_SAFE_INTEGER
+        ),
+      });
+    }
+  }
+
+  return workingSceneOutline.reduce<ScenePlan[]>((result, scene, index) => {
+    if (result.length === 0) {
+      result.push({
+        ...scene,
+        chunkIndexes: [...scene.chunkIndexes],
+      });
+      return result;
+    }
+
+    if (!shouldMergeGeneratedScene(scene, index, workingSceneOutline.length)) {
+      result.push({
+        ...scene,
+        chunkIndexes: [...scene.chunkIndexes],
+      });
+      return result;
+    }
+
+    const previous = result[result.length - 1];
+    result[result.length - 1] = {
+      sceneId: previous.sceneId || `scene-${result.length}`,
+      title: chooseMergedScenePlanTitle(previous, scene, result.length),
+      summary: [previous.summary.trim(), scene.summary.trim()].filter(Boolean).join('\n\n'),
+      chunkIndexes: normalizeChunkIndexes(
+        [...previous.chunkIndexes, ...scene.chunkIndexes],
+        Number.MAX_SAFE_INTEGER
+      ),
+    };
+    return result;
+  }, []).map((scene, index) => ({
+    ...scene,
+    sceneId: `scene-${index + 1}`,
+  }));
+}
+
 function normalizeSceneOutlineInput(sceneOutline: ScenePlan[], chunkCount: number): ScenePlan[] {
   return sceneOutline
     .map((scene, index) => ({
       sceneId: toString(scene.sceneId, `scene-${index + 1}`),
-      title: toString(scene.title, `第 ${index + 1} 节`),
-      summary: toString(scene.summary),
+      title: sanitizeNarrativeText(toString(scene.title, `第 ${index + 1} 节`)),
+      summary: sanitizeNarrativeText(toString(scene.summary)),
       chunkIndexes: normalizeChunkIndexes(scene.chunkIndexes, chunkCount),
     }))
     .filter((scene) => scene.chunkIndexes.length > 0);
@@ -468,14 +824,57 @@ function isAbortError(error: unknown): boolean {
 function cloneGlobalSynthesis(value: StorySynthesis): StorySynthesis {
   return {
     ...value,
-    sceneOutline: value.sceneOutline.map((scene) => ({ ...scene, chunkIndexes: [...scene.chunkIndexes] })),
-    writingConstraints: [...value.writingConstraints],
+    storyOverview: sanitizeNarrativeText(value.storyOverview),
+    worldGuide: sanitizeNarrativeText(value.worldGuide),
+    characterGuide: sanitizeNarrativeText(value.characterGuide),
+    sceneOutline: value.sceneOutline.map((scene) => ({
+      ...scene,
+      title: sanitizeNarrativeText(scene.title),
+      summary: sanitizeNarrativeText(scene.summary),
+      chunkIndexes: [...scene.chunkIndexes],
+    })),
+    writingConstraints: value.writingConstraints.map((item) => sanitizeNarrativeText(item)).filter(Boolean),
+  };
+}
+
+function cloneWritingPreparation(value: WritingPreparation): WritingPreparation {
+  return {
+    ...DEFAULT_WRITING_PREPARATION,
+    ...value,
+    voiceGuide: sanitizeNarrativeText(value.voiceGuide),
   };
 }
 
 function cloneFinalPolish(value: FinalPolish): FinalPolish {
+  const polishedSectionBodies = Array.isArray(value.polishedSectionBodies)
+    ? value.polishedSectionBodies
+      .map((body) => sanitizeNarrativeText(String(body || '')))
+      .filter(Boolean)
+    : [];
+  const totalSections = Number.isFinite(value.totalSections)
+    ? Math.max(0, Math.trunc(value.totalSections))
+    : polishedSectionBodies.length;
+  const currentSectionIndex = Number.isFinite(value.currentSectionIndex)
+    ? Math.max(0, Math.trunc(value.currentSectionIndex))
+    : polishedSectionBodies.length;
+  const voiceGuide = sanitizeNarrativeText(value.voiceGuide) || undefined;
+  const fallbackMarkdownBody = polishedSectionBodies.join('\n\n').trim();
+  const markdownBody = sanitizeNarrativeText(value.markdownBody)
+    || (value.status === 'success' ? fallbackMarkdownBody || undefined : undefined);
+  const phase = value.status === 'success'
+    ? 'complete'
+    : value.phase
+      || (voiceGuide ? 'polish-sections' : 'idle');
+
   return {
+    ...DEFAULT_FINAL_POLISH,
     ...value,
+    voiceGuide,
+    markdownBody,
+    polishedSectionBodies,
+    currentSectionIndex: Math.min(currentSectionIndex, Math.max(totalSections, polishedSectionBodies.length)),
+    totalSections: Math.max(totalSections, polishedSectionBodies.length),
+    phase,
   };
 }
 
@@ -489,6 +888,7 @@ interface ModelRequest {
   userPrompt: string;
   temperature: number;
   maxOutputTokens: number;
+  timeoutMs?: number;
 }
 
 interface RetryTarget {
@@ -516,7 +916,22 @@ function isInputTokenLimitError(message: string): boolean {
 }
 
 function isCapacityAvailabilityError(message: string): boolean {
-  return /no capacity available for model|model .* is at capacity|currently at capacity|capacity unavailable|server is busy|overloaded|resource has been exhausted|quota(?:\s+has)?\s+been exhausted|check quota|insufficient quota|quota exceeded/i.test(message);
+  return isTransientCapacityError(message) || isHardQuotaExceededError(message);
+}
+
+function isTransientCapacityError(message: string): boolean {
+  return /no capacity available for model|model .* is at capacity|currently at capacity|capacity unavailable|server is busy|overloaded/i.test(message);
+}
+
+function isHardQuotaExceededError(message: string): boolean {
+  return /resource has been exhausted|quota(?:\s+has)?\s+been exhausted|check quota|insufficient quota|quota exceeded|billing hard limit|credit balance/i.test(message);
+}
+
+function isTransientGatewayProxyError(message: string): boolean {
+  return (
+    /request failed\s*\((?:502|503|504)\)|bad gateway|gateway timeout|service unavailable/i.test(message)
+    || (/targeturl|socketerror|und_err_socket|other side closed|unexpected eof/i.test(message) && /request failed|fetch failed/i.test(message))
+  ) && !isBrowserReachabilityError(message);
 }
 
 function isPageAnalysisConnectionError(message: string): boolean {
@@ -556,8 +971,16 @@ function parseRetryAfterDelayMs(message: string): number | null {
 }
 
 function getImplicitRecoveryRetryLimit(message: string): number {
-  if (isCapacityAvailabilityError(message)) {
+  if (isHardQuotaExceededError(message)) {
+    return 0;
+  }
+
+  if (isTransientGatewayProxyError(message)) {
     return 2;
+  }
+
+  if (isTransientCapacityError(message)) {
+    return 1;
   }
 
   if (isTransientEmptyCompletionError(message)) {
@@ -575,7 +998,11 @@ function shouldAttemptImplicitRecoveryRetry(
     return false;
   }
 
-  return isCapacityAvailabilityError(message) || isTransientEmptyCompletionError(message);
+  return (
+    isCapacityAvailabilityError(message)
+    || isTransientEmptyCompletionError(message)
+    || isTransientGatewayProxyError(message)
+  );
 }
 
 function getImplicitRecoveryRetryDelayMs(message: string, fallbackDelayMs: number): number {
@@ -584,7 +1011,33 @@ function getImplicitRecoveryRetryDelayMs(message: string, fallbackDelayMs: numbe
     return Math.min(30_000, Math.max(1_000, hintedDelay + 500));
   }
 
+  if (isTransientGatewayProxyError(message)) {
+    return Math.min(12_000, Math.max(2_000, Math.trunc(fallbackDelayMs * 0.75) || 2_000));
+  }
+
   return Math.min(30_000, Math.max(6_000, fallbackDelayMs));
+}
+
+function buildRequestTimeoutMessage(
+  request: Pick<ModelRequest, 'stage' | 'itemLabel'>,
+  timeoutMs: number
+): string {
+  const stageName = REQUEST_STAGE_LABELS[request.stage];
+  const timeoutSeconds = Math.max(1, Math.round(timeoutMs / 1000));
+
+  switch (request.stage) {
+    case 'analyze-pages':
+      return `“${stageName} / ${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求。建议减少每组图片数后重试。`;
+    case 'synthesize-chunks':
+    case 'synthesize-story':
+      return `“${stageName} / ${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求。建议减小 Chunk Size 或降低单次综合量后重试。`;
+    case 'write-sections':
+      return `“${stageName} / ${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求。建议拆细场景、缩短单章长度，或换更稳的写作模型后重试。`;
+    case 'polish-novel':
+      return `“${stageName} / ${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求，避免界面一直转圈。建议稍后重试；如果这是整节统稿，程序会在可拆分时自动改用更小片段继续尝试。`;
+    default:
+      return `“${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求。`;
+  }
 }
 
 function getTruncationRetryTokenCap(stage: RequestStage): number {
@@ -767,6 +1220,7 @@ export class TaskOrchestrator {
       pageAnalyses: [],
       chunkSyntheses: [],
       globalSynthesis: cloneGlobalSynthesis(DEFAULT_STORY_SYNTHESIS),
+      writingPreparation: cloneWritingPreparation(DEFAULT_WRITING_PREPARATION),
       novelSections: [],
       finalPolish: cloneFinalPolish(DEFAULT_FINAL_POLISH),
       memory: { ...DEFAULT_MEMORY_STATE },
@@ -817,6 +1271,7 @@ export class TaskOrchestrator {
         keyDevelopments: [...chunk.keyDevelopments],
       })),
       globalSynthesis: cloneGlobalSynthesis(this.state.globalSynthesis),
+      writingPreparation: cloneWritingPreparation(this.state.writingPreparation),
       novelSections: this.state.novelSections.map((section) => ({
         ...section,
         chunkIndexes: [...section.chunkIndexes],
@@ -929,6 +1384,320 @@ export class TaskOrchestrator {
     return '';
   }
 
+  private getFinalPolishSourceSections(): NovelSection[] {
+    return this.state.novelSections.filter((section) => (
+      section.status === 'success' && Boolean(section.markdownBody?.trim())
+    ));
+  }
+
+  private syncFinalPolishProgress(sourceSections: NovelSection[]) {
+    const polishedSectionBodies = (this.state.finalPolish.polishedSectionBodies || [])
+      .map((body) => String(body || '').trim())
+      .filter(Boolean)
+      .slice(0, sourceSections.length);
+
+    this.state.finalPolish.polishedSectionBodies = polishedSectionBodies;
+    this.state.finalPolish.totalSections = sourceSections.length;
+
+    if (this.state.finalPolish.status === 'success') {
+      this.state.finalPolish.currentSectionIndex = sourceSections.length;
+      this.state.finalPolish.phase = 'complete';
+      return;
+    }
+
+    if (!sourceSections.length) {
+      this.state.finalPolish.currentSectionIndex = 0;
+      this.state.finalPolish.phase = 'idle';
+      return;
+    }
+
+    if (!this.state.finalPolish.voiceGuide?.trim()) {
+      this.state.finalPolish.currentSectionIndex = 0;
+      this.state.finalPolish.phase = 'build-voice-guide';
+      return;
+    }
+
+    this.state.finalPolish.currentSectionIndex = Math.min(
+      Math.max(this.state.finalPolish.currentSectionIndex, polishedSectionBodies.length),
+      sourceSections.length
+    );
+    this.state.finalPolish.phase = polishedSectionBodies.length >= sourceSections.length
+      ? 'complete'
+      : 'polish-sections';
+  }
+
+  private applySkippedFinalPolish(error?: string) {
+    this.state.finalPolish = {
+      ...cloneFinalPolish(DEFAULT_FINAL_POLISH),
+      status: 'skipped',
+      error,
+    };
+    this.refreshFullNovel();
+  }
+
+  private getSectionImageNames(section: NovelSection): string[] {
+    return this.state.pageAnalyses
+      .filter((page) => section.chunkIndexes.includes(page.chunkIndex))
+      .map((page) => page.imageName);
+  }
+
+  private getFinalPolishSectionMaxTokens(section: NovelSection): number {
+    const bodyLength = section.markdownBody?.trim().length || 0;
+    return Math.min(8192, Math.max(4096, Math.ceil(bodyLength * 1.4)));
+  }
+
+  private getFinalPolishDraftMaxTokens(draftText: string): number {
+    const bodyLength = draftText.trim().length;
+    return Math.min(8192, Math.max(2048, Math.ceil(bodyLength * 1.5)));
+  }
+
+  private getAdaptiveTimeoutMs(textLength: number, baseMs: number, maxMs: number): number {
+    const normalizedLength = Math.max(0, Math.trunc(textLength) || 0);
+    return Math.min(maxMs, Math.max(baseMs, baseMs + normalizedLength * 45));
+  }
+
+  private getFinalPolishSectionTimeoutMs(draftText: string): number {
+    return this.getAdaptiveTimeoutMs(
+      draftText.trim().length,
+      FINAL_POLISH_SECTION_TIMEOUT_BASE_MS,
+      FINAL_POLISH_SECTION_TIMEOUT_MAX_MS
+    );
+  }
+
+  private buildCompactFinalPolishStorySynthesis(): StorySynthesis {
+    return {
+      ...this.state.globalSynthesis,
+      storyOverview: compactText(
+        this.state.globalSynthesis.storyOverview,
+        FINAL_POLISH_COMPACT_STORY_OVERVIEW_LENGTH
+      ),
+      worldGuide: compactText(
+        this.state.globalSynthesis.worldGuide,
+        FINAL_POLISH_COMPACT_WORLD_GUIDE_LENGTH
+      ),
+      characterGuide: compactText(
+        this.state.globalSynthesis.characterGuide,
+        FINAL_POLISH_COMPACT_CHARACTER_GUIDE_LENGTH
+      ),
+      sceneOutline: this.state.globalSynthesis.sceneOutline.map((scene) => ({
+        ...scene,
+        summary: compactText(scene.summary, FINAL_POLISH_COMPACT_SCENE_SUMMARY_LENGTH),
+      })),
+      writingConstraints: compactTextArray(
+        this.state.globalSynthesis.writingConstraints,
+        FINAL_POLISH_COMPACT_CONSTRAINT_COUNT,
+        FINAL_POLISH_COMPACT_CONSTRAINT_LENGTH
+      ),
+    };
+  }
+
+  private buildFinalPolishSectionsForDraft(
+    sourceSections: NovelSection[],
+    sectionListIndex: number,
+    draftText: string
+  ): NovelSection[] {
+    return sourceSections.map((candidateSection, index) => (
+      index === sectionListIndex
+        ? {
+            ...candidateSection,
+            markdownBody: draftText,
+          }
+        : candidateSection
+    ));
+  }
+
+  private buildFinalPolishSectionItemLabel(
+    section: NovelSection,
+    segmentLabel?: string
+  ): string {
+    const suffix = segmentLabel?.trim() ? ` · ${segmentLabel.trim()}` : '';
+    return `全书统稿：润色第 ${section.index + 1} 节 ${section.title}${suffix}`;
+  }
+
+  private shouldRetryFinalPolishWithSplit(
+    errorMessage: string,
+    draftText: string,
+    splitDepth: number
+  ): boolean {
+    if (splitDepth >= FINAL_POLISH_MAX_SPLIT_DEPTH) {
+      return false;
+    }
+
+    if (
+      !isTruncatedCompletionError(errorMessage)
+      && !isInputTokenLimitError(errorMessage)
+      && !isEmptyCompletionError(errorMessage)
+      && !/timed? out|timeout|没有完成/i.test(errorMessage)
+    ) {
+      return false;
+    }
+
+    return Boolean(splitFinalPolishDraft(draftText));
+  }
+
+  private async requestFinalPolishSectionDraft(
+    sourceSections: NovelSection[],
+    sectionListIndex: number,
+    draftText: string,
+    storySynthesis: StorySynthesis,
+    segmentLabel?: string
+  ): Promise<string> {
+    const section = sourceSections[sectionListIndex];
+    const sectionContext = this.buildFinalPolishSectionsForDraft(sourceSections, sectionListIndex, draftText);
+    const result = await this.requestStructuredData(
+      this.state.finalPolish,
+      {
+        stage: 'polish-novel',
+        itemLabel: this.buildFinalPolishSectionItemLabel(section, segmentLabel),
+        chunkIndex: section.index,
+        imageNames: this.getSectionImageNames(section),
+        images: [],
+        systemPrompt: buildFinalPolishSectionSystemPrompt(this.state.creativeSettings.systemPrompt),
+        userPrompt: buildFinalPolishSectionUserPrompt(
+          storySynthesis,
+          sectionContext,
+          sectionListIndex,
+          this.state.finalPolish.voiceGuide || '',
+          this.state.creativeSettings.writingMode
+        ),
+        temperature: this.state.creativeSettings.temperature,
+        maxOutputTokens: this.getFinalPolishDraftMaxTokens(draftText),
+        timeoutMs: this.getFinalPolishSectionTimeoutMs(draftText),
+      },
+      parseFinalPolishResult
+    );
+
+    return result.novelText.trim();
+  }
+
+  private async executeFinalPolishSectionWithFallback(
+    sourceSections: NovelSection[],
+    sectionListIndex: number,
+    draftText: string,
+    storySynthesis: StorySynthesis,
+    splitDepth = 0,
+    segmentLabel?: string
+  ): Promise<string> {
+    try {
+      return await this.requestFinalPolishSectionDraft(
+        sourceSections,
+        sectionListIndex,
+        draftText,
+        storySynthesis,
+        segmentLabel
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!this.shouldRetryFinalPolishWithSplit(errorMessage, draftText, splitDepth)) {
+        throw error;
+      }
+
+      const splitParts = splitFinalPolishDraft(draftText);
+      if (!splitParts || splitParts.length < 2) {
+        throw error;
+      }
+
+      const nextStorySynthesis = splitDepth === 0
+        ? this.buildCompactFinalPolishStorySynthesis()
+        : storySynthesis;
+      const polishedParts: string[] = [];
+
+      for (let partIndex = 0; partIndex < splitParts.length; partIndex += 1) {
+        const nestedSegmentLabel = segmentLabel
+          ? `${segmentLabel} / 片段 ${partIndex + 1}/${splitParts.length}`
+          : `片段 ${partIndex + 1}/${splitParts.length}`;
+        const polishedPart = await this.executeFinalPolishSectionWithFallback(
+          sourceSections,
+          sectionListIndex,
+          splitParts[partIndex],
+          nextStorySynthesis,
+          splitDepth + 1,
+          nestedSegmentLabel
+        );
+        polishedParts.push(polishedPart);
+      }
+
+      return polishedParts.join('\n\n').trim();
+    }
+  }
+
+  private async executeFinalPolishStage(): Promise<'success' | 'skipped'> {
+    const sourceSections = this.getFinalPolishSourceSections();
+    this.syncFinalPolishProgress(sourceSections);
+
+    if (sourceSections.length === 0) {
+      this.applySkippedFinalPolish('没有可用于统稿的章节正文。');
+      return 'skipped';
+    }
+
+    this.state.finalPolish.status = 'processing';
+    this.state.finalPolish.error = undefined;
+    this.state.finalPolish.markdownBody = undefined;
+
+    if (!this.state.finalPolish.voiceGuide?.trim()) {
+      this.state.finalPolish.phase = 'build-voice-guide';
+      this.state.finalPolish.currentSectionIndex = 0;
+
+      const guideResult = await this.requestStructuredData(
+        this.state.finalPolish,
+        {
+          stage: 'polish-novel',
+          itemLabel: '全书统稿：统一口吻指南',
+          chunkIndex: 0,
+          imageNames: this.state.pageAnalyses.map((page) => page.imageName),
+          images: [],
+          systemPrompt: buildFinalPolishVoiceGuideSystemPrompt(this.state.creativeSettings.systemPrompt),
+          userPrompt: buildFinalPolishVoiceGuideUserPrompt(
+            this.state.globalSynthesis,
+            sourceSections,
+            this.state.creativeSettings.writingMode
+          ),
+          temperature: Math.min(this.state.creativeSettings.temperature, 0.7),
+          maxOutputTokens: 2048,
+          timeoutMs: FINAL_POLISH_VOICE_GUIDE_TIMEOUT_MS,
+        },
+        parseFinalPolishVoiceGuideResult
+      );
+
+      this.state.finalPolish.voiceGuide = guideResult.voiceGuide;
+    }
+
+    this.state.finalPolish.phase = 'polish-sections';
+    const startIndex = Math.min(this.state.finalPolish.polishedSectionBodies.length, sourceSections.length);
+
+    for (let sectionListIndex = startIndex; sectionListIndex < sourceSections.length; sectionListIndex += 1) {
+      if (this.isPaused) {
+        throw createAbortError();
+      }
+
+      const section = sourceSections[sectionListIndex];
+      this.state.finalPolish.currentSectionIndex = sectionListIndex;
+
+      const novelText = await this.executeFinalPolishSectionWithFallback(
+        sourceSections,
+        sectionListIndex,
+        section.markdownBody || '',
+        this.state.globalSynthesis
+      );
+
+      const polishedSectionBodies = [...this.state.finalPolish.polishedSectionBodies];
+      polishedSectionBodies[sectionListIndex] = novelText;
+      this.state.finalPolish.polishedSectionBodies = polishedSectionBodies.slice(0, sectionListIndex + 1);
+      this.state.finalPolish.currentSectionIndex = sectionListIndex + 1;
+    }
+
+    this.state.finalPolish.phase = 'complete';
+    this.state.finalPolish.currentSectionIndex = sourceSections.length;
+    this.state.finalPolish.totalSections = sourceSections.length;
+    this.state.finalPolish.markdownBody = this.state.finalPolish.polishedSectionBodies
+      .join('\n\n')
+      .trim();
+    this.state.finalPolish.status = 'success';
+    this.state.finalPolish.error = undefined;
+    this.refreshFullNovel();
+    return 'success';
+  }
+
   private initializeSectionsFromGlobalSynthesis() {
     const sections = createSectionsFromSceneOutline(
       this.state.globalSynthesis.sceneOutline,
@@ -951,8 +1720,81 @@ export class TaskOrchestrator {
       };
     });
 
+    this.state.writingPreparation = cloneWritingPreparation(DEFAULT_WRITING_PREPARATION);
     this.state.finalPolish = cloneFinalPolish(DEFAULT_FINAL_POLISH);
     this.refreshFullNovel();
+  }
+
+  private async ensureWritingPreparation(): Promise<void> {
+    if (
+      this.state.writingPreparation.status === 'success'
+      || this.state.writingPreparation.status === 'skipped'
+    ) {
+      return;
+    }
+
+    this.state.writingPreparation.status = 'processing';
+    this.state.writingPreparation.error = undefined;
+    this.emit('chunk-start', 0);
+
+    try {
+      const result = await this.requestStructuredData(
+        this.state.writingPreparation,
+        {
+          stage: 'write-sections',
+          itemLabel: '章节写作：写作前准备',
+          chunkIndex: 0,
+          imageNames: this.state.pageAnalyses.map((page) => page.imageName),
+          images: [],
+          systemPrompt: buildWritingPreparationSystemPrompt(this.state.creativeSettings.systemPrompt),
+          userPrompt: buildWritingPreparationUserPrompt(
+            this.state.globalSynthesis,
+            this.state.chunkSyntheses,
+            this.state.creativeSettings.writingMode
+          ),
+          temperature: Math.min(this.state.creativeSettings.temperature, 0.7),
+          maxOutputTokens: WRITING_PREPARATION_MAX_TOKENS,
+          timeoutMs: WRITING_PREPARATION_TIMEOUT_MS,
+        },
+        parseWritingPreparationResult
+      );
+
+      this.state.writingPreparation.voiceGuide = result.voiceGuide.trim();
+      this.state.writingPreparation.status = 'success';
+      this.state.writingPreparation.error = undefined;
+      this.emit('chunk-success', 0);
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.state.writingPreparation.status = 'error';
+      this.state.writingPreparation.error = errorMessage;
+
+      if (this.shouldAutoSkipOnError()) {
+        this.applySkippedWritingPreparation(errorMessage);
+        this.emit('chunk-error', 0, errorMessage);
+        this.emit('chunk-skip', 0);
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  private applySkippedWritingPreparation(error?: string) {
+    const fallback = createFallbackWritingPreparation(
+      this.state.globalSynthesis,
+      this.state.creativeSettings.writingMode
+    );
+
+    this.state.writingPreparation = {
+      ...cloneWritingPreparation(DEFAULT_WRITING_PREPARATION),
+      ...fallback,
+      status: 'skipped',
+      error,
+    };
   }
 
   private resolveAPIConfigForStage(stage: RequestStage, model?: string): APIConfig {
@@ -1008,6 +1850,10 @@ export class TaskOrchestrator {
   }
 
   private getRequestTimeoutMs(request: ModelRequest): number | null {
+    if (typeof request.timeoutMs === 'number' && Number.isFinite(request.timeoutMs) && request.timeoutMs > 0) {
+      return Math.trunc(request.timeoutMs);
+    }
+
     if (request.stage === 'analyze-pages' && request.imageNames.length > 1) {
       return PAGE_ANALYSIS_BATCH_TIMEOUT_MS;
     }
@@ -1127,6 +1973,22 @@ export class TaskOrchestrator {
       writingConstraints: [...(state.globalSynthesis?.writingConstraints || [])],
       outlineConfirmed: Boolean(state.globalSynthesis?.outlineConfirmed),
     };
+    state.chunkSyntheses = (state.chunkSyntheses || []).map((chunk) => ({
+      ...chunk,
+      title: sanitizeNarrativeText(chunk.title),
+      summary: sanitizeNarrativeText(chunk.summary),
+      keyDevelopments: (chunk.keyDevelopments || []).map((item) => sanitizeNarrativeText(item)).filter(Boolean),
+      continuitySummary: sanitizeNarrativeText(chunk.continuitySummary),
+    }));
+    state.novelSections = (state.novelSections || []).map((section) => ({
+      ...section,
+      title: sanitizeNarrativeText(section.title),
+      markdownBody: section.markdownBody ? sanitizeNarrativeText(section.markdownBody) : undefined,
+      continuitySummary: section.continuitySummary ? sanitizeNarrativeText(section.continuitySummary) : undefined,
+    }));
+    state.writingPreparation = cloneWritingPreparation(
+      state.writingPreparation || DEFAULT_WRITING_PREPARATION
+    );
     state.finalPolish = cloneFinalPolish(state.finalPolish || DEFAULT_FINAL_POLISH);
 
     state.chunks.forEach((chunk) => {
@@ -1208,6 +2070,11 @@ export class TaskOrchestrator {
     if (state.globalSynthesis.status === 'processing') {
       state.globalSynthesis.status = 'pending';
       state.globalSynthesis.error = undefined;
+    }
+
+    if (state.writingPreparation.status === 'processing') {
+      state.writingPreparation.status = 'pending';
+      state.writingPreparation.error = undefined;
     }
 
     state.novelSections.forEach((section) => {
@@ -1435,6 +2302,7 @@ export class TaskOrchestrator {
 
   private resetGlobalSynthesisAndSections() {
     this.state.globalSynthesis = cloneGlobalSynthesis(DEFAULT_STORY_SYNTHESIS);
+    this.state.writingPreparation = cloneWritingPreparation(DEFAULT_WRITING_PREPARATION);
     this.state.novelSections = [];
     this.state.finalPolish = cloneFinalPolish(DEFAULT_FINAL_POLISH);
     this.state.memory = { ...DEFAULT_MEMORY_STATE };
@@ -1488,6 +2356,11 @@ export class TaskOrchestrator {
       section.error = undefined;
       section.retryCount = 0;
     }
+
+    if (startIndex <= 0) {
+      this.state.writingPreparation = cloneWritingPreparation(DEFAULT_WRITING_PREPARATION);
+    }
+
     this.state.finalPolish = cloneFinalPolish(DEFAULT_FINAL_POLISH);
     this.refreshFullNovel();
     this.state.memory.completedChunks = this.state.novelSections
@@ -1824,6 +2697,7 @@ export class TaskOrchestrator {
             }),
             temperature: SYNTHESIS_TEMPERATURE,
             maxOutputTokens: SYNTHESIS_MAX_TOKENS,
+            timeoutMs: CHUNK_SYNTHESIS_TIMEOUT_MS,
           },
           parseChunkSynthesisResult
         );
@@ -1904,6 +2778,7 @@ export class TaskOrchestrator {
           ),
           temperature: SYNTHESIS_TEMPERATURE,
           maxOutputTokens: SYNTHESIS_MAX_TOKENS,
+          timeoutMs: STORY_SYNTHESIS_TIMEOUT_MS,
         },
         (rawText) => parseStorySynthesisResult(rawText, this.state.chunkSyntheses.length)
       );
@@ -1914,7 +2789,7 @@ export class TaskOrchestrator {
         storyOverview: result.storyOverview,
         worldGuide: result.worldGuide,
         characterGuide: result.characterGuide,
-        sceneOutline: result.sceneOutline,
+        sceneOutline: optimizeGeneratedSceneOutline(result.sceneOutline),
         writingConstraints: result.writingConstraints,
         outlineConfirmed: false,
         error: undefined,
@@ -1958,6 +2833,24 @@ export class TaskOrchestrator {
     }
 
     const sectionSystemPrompt = buildSectionSystemPrompt(this.state.creativeSettings.systemPrompt);
+
+    try {
+      await this.ensureWritingPreparation();
+    } catch (error) {
+      if (isAbortError(error)) {
+        this.state.status = 'paused';
+        this.state.currentChunkIndex = 0;
+        this.emit('paused');
+        return false;
+      }
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.state.status = 'paused';
+      this.state.currentChunkIndex = 0;
+      this.emit('chunk-error', 0, errorMessage);
+      this.emit('paused');
+      return false;
+    }
 
     for (let index = this.state.currentChunkIndex; index < this.state.novelSections.length; index += 1) {
       if (this.isPaused) {
@@ -2008,10 +2901,12 @@ export class TaskOrchestrator {
               this.state.chunkSyntheses,
               this.state.pageAnalyses,
               this.state.creativeSettings.writingMode,
+              this.state.writingPreparation.voiceGuide,
               this.state.creativeSettings.userPromptTemplate
             ),
             temperature: this.state.creativeSettings.temperature,
             maxOutputTokens: WRITING_MAX_TOKENS,
+            timeoutMs: SECTION_WRITING_TIMEOUT_MS,
           },
           parseSectionResult
         );
@@ -2062,49 +2957,12 @@ export class TaskOrchestrator {
       return true;
     }
 
-    const sectionDraft = this.state.novelSections
-      .filter((section) => section.status === 'success' && section.markdownBody?.trim())
-      .map((section) => section.markdownBody!.trim())
-      .join('\n\n');
-
-    if (!sectionDraft) {
-      this.state.finalPolish.status = 'skipped';
-      this.state.finalPolish.error = '没有可用于统稿的章节正文。';
-      this.refreshFullNovel();
-      this.emit('chunk-skip', 0);
-      return true;
-    }
-
     this.state.currentChunkIndex = 0;
-    this.state.finalPolish.status = 'processing';
-    this.state.finalPolish.error = undefined;
     this.emit('chunk-start', 0);
 
     try {
-      const result = await this.requestStructuredData(
-        this.state.finalPolish,
-        {
-          stage: 'polish-novel',
-          itemLabel: '全书统稿',
-          chunkIndex: 0,
-          imageNames: this.state.pageAnalyses.map((page) => page.imageName),
-          images: [],
-          systemPrompt: buildFinalPolishSystemPrompt(this.state.creativeSettings.systemPrompt),
-          userPrompt: buildFinalPolishUserPrompt(
-            this.state.globalSynthesis,
-            sectionDraft,
-            this.state.creativeSettings.writingMode
-          ),
-          temperature: this.state.creativeSettings.temperature,
-          maxOutputTokens: 8192,
-        },
-        parseFinalPolishResult
-      );
-
-      this.state.finalPolish.markdownBody = result.novelText;
-      this.state.finalPolish.status = 'success';
-      this.refreshFullNovel();
-      this.emit('chunk-success', 0);
+      const result = await this.executeFinalPolishStage();
+      this.emit(result === 'skipped' ? 'chunk-skip' : 'chunk-success', 0);
       return true;
     } catch (error) {
       if (isAbortError(error)) {
@@ -2118,8 +2976,7 @@ export class TaskOrchestrator {
       this.state.finalPolish.status = 'error';
       this.state.finalPolish.error = errorMessage;
       if (this.shouldAutoSkipOnError()) {
-        this.state.finalPolish.status = 'skipped';
-        this.refreshFullNovel();
+        this.applySkippedFinalPolish(errorMessage);
         this.emit('chunk-error', 0, errorMessage);
         this.emit('chunk-skip', 0);
         return true;
@@ -2229,9 +3086,10 @@ export class TaskOrchestrator {
       const attemptTraceSequence = startAttemptTrace(model, currentMaxOutputTokens);
 
       try {
+        const requestTimeoutMs = this.getRequestTimeoutMs(request);
         const requestSignal = createRequestSignal(
           this.abortController?.signal,
-          this.getRequestTimeoutMs(request)
+          requestTimeoutMs
         );
 
         const rawText = await callAIText(
@@ -2250,8 +3108,7 @@ export class TaskOrchestrator {
           requestSignal.signal
         ).catch((error) => {
           if (isAbortError(error) && requestSignal.didTimeout()) {
-            const timeoutSeconds = Math.round((this.getRequestTimeoutMs(request) || 0) / 1000);
-            throw new Error(`The page analysis request timed out after ${timeoutSeconds} seconds.`);
+            throw new Error(buildRequestTimeoutMessage(request, requestTimeoutMs || 0));
           }
           throw error;
         }).finally(() => {
@@ -2265,6 +3122,15 @@ export class TaskOrchestrator {
         return parsed;
       } catch (error) {
         if (isAbortError(error)) {
+          finishAttemptTrace(attemptTraceSequence, 'error', {
+            error: this.isPaused
+              ? '当前请求已中断，任务已暂停。'
+              : '当前请求已中断，用于尽快收口同批并发任务。',
+            nextAction: this.isPaused
+              ? '可以点击“继续”从当前进度恢复'
+              : '已停止同批其余请求，准备回到出错项',
+            requestStatus: 'interrupted',
+          });
           throw error;
         }
 
@@ -2274,6 +3140,8 @@ export class TaskOrchestrator {
         const inputTokenLimitError = isInputTokenLimitError(errorMessage);
         const browserReachabilityError = isBrowserReachabilityError(errorMessage);
         const truncatedCompletionError = isTruncatedCompletionError(errorMessage);
+        const hardQuotaExceededError = isHardQuotaExceededError(errorMessage);
+        const transientCapacityError = isTransientCapacityError(errorMessage);
 
         if (tokenLimitError) {
           const overflow = Math.max(1, tokenLimitError.requestedTotal - tokenLimitError.maxSeqLen);
@@ -2346,6 +3214,16 @@ export class TaskOrchestrator {
           break;
         }
 
+        if (hardQuotaExceededError) {
+          target.retryCount = attempt + 1;
+          target.error = errorMessage;
+          finishAttemptTrace(attemptTraceSequence, 'error', {
+            error: errorMessage,
+            nextAction: '检测到当前 key / 账户额度不足，停止自动重试',
+          });
+          break;
+        }
+
         if (
           request.stage === 'analyze-pages'
           && request.imageNames.length > 1
@@ -2370,13 +3248,28 @@ export class TaskOrchestrator {
           const delay = getImplicitRecoveryRetryDelayMs(errorMessage, this.state.config.retryDelay);
           target.retryCount = attempt + implicitRecoveryAttempts;
           target.error = undefined;
+          const recoveryReason = isTransientGatewayProxyError(errorMessage)
+            ? '兼容接口或上游网关疑似短暂抖动'
+            : '兼容接口疑似短暂容量不足或空回';
           finishAttemptTrace(attemptTraceSequence, 'error', {
             error: errorMessage,
-            nextAction: `兼容接口疑似短暂容量不足或空回，${delay} ms 后自动恢复重试`,
+            nextAction: `${recoveryReason}，${delay} ms 后自动恢复重试`,
           });
           await waitForAbortableDelay(delay, this.abortController?.signal);
           attempt -= 1;
           continue;
+        }
+
+        if ((transientCapacityError || isTransientGatewayProxyError(errorMessage)) && implicitRecoveryRetryLimit > 0) {
+          target.retryCount = attempt + 1;
+          target.error = errorMessage;
+          finishAttemptTrace(attemptTraceSequence, 'error', {
+            error: errorMessage,
+            nextAction: transientCapacityError
+              ? '上游容量短时未恢复，停止自动重试'
+              : '兼容接口或网关短时故障未恢复，停止自动重试',
+          });
+          break;
         }
 
         target.retryCount = attempt + 1;
@@ -2470,6 +3363,15 @@ export class TaskOrchestrator {
         break;
       }
       case 'write-sections': {
+        if (
+          this.state.writingPreparation.status !== 'success'
+          && this.state.writingPreparation.status !== 'skipped'
+        ) {
+          this.applySkippedWritingPreparation(this.state.writingPreparation.error);
+          this.emit('chunk-skip', 0);
+          break;
+        }
+
         const section = this.state.novelSections[this.state.currentChunkIndex];
         if (section) {
           section.status = 'skipped';
@@ -2481,9 +3383,7 @@ export class TaskOrchestrator {
         break;
       }
       case 'polish-novel': {
-        this.state.finalPolish.status = 'skipped';
-        this.state.finalPolish.error = undefined;
-        this.refreshFullNovel();
+        this.applySkippedFinalPolish();
         this.emit('chunk-skip', 0);
         break;
       }
@@ -2522,6 +3422,14 @@ export class TaskOrchestrator {
         break;
       }
       case 'write-sections': {
+        if (
+          this.state.writingPreparation.status !== 'success'
+          && this.state.writingPreparation.status !== 'skipped'
+        ) {
+          this.state.writingPreparation = cloneWritingPreparation(DEFAULT_WRITING_PREPARATION);
+          break;
+        }
+
         const section = this.state.novelSections[this.state.currentChunkIndex];
         if (section) {
           section.status = 'pending';
@@ -2531,9 +3439,8 @@ export class TaskOrchestrator {
         break;
       }
       case 'polish-novel': {
-        this.state.finalPolish.status = 'pending';
-        this.state.finalPolish.retryCount = 0;
-        this.state.finalPolish.error = undefined;
+        this.state.finalPolish = cloneFinalPolish(DEFAULT_FINAL_POLISH);
+        this.refreshFullNovel();
         break;
       }
       default:
@@ -2627,6 +3534,7 @@ export class TaskOrchestrator {
           }),
           temperature: SYNTHESIS_TEMPERATURE,
           maxOutputTokens: SYNTHESIS_MAX_TOKENS,
+          timeoutMs: CHUNK_SYNTHESIS_TIMEOUT_MS,
         },
         parseChunkSynthesisResult
       );
@@ -2685,6 +3593,7 @@ export class TaskOrchestrator {
           ),
           temperature: SYNTHESIS_TEMPERATURE,
           maxOutputTokens: SYNTHESIS_MAX_TOKENS,
+          timeoutMs: STORY_SYNTHESIS_TIMEOUT_MS,
         },
         (rawText) => parseStorySynthesisResult(rawText, this.state.chunkSyntheses.length)
       );
@@ -2695,7 +3604,7 @@ export class TaskOrchestrator {
         storyOverview: result.storyOverview,
         worldGuide: result.worldGuide,
         characterGuide: result.characterGuide,
-        sceneOutline: result.sceneOutline,
+        sceneOutline: optimizeGeneratedSceneOutline(result.sceneOutline),
         writingConstraints: result.writingConstraints,
         outlineConfirmed: false,
         error: undefined,
@@ -2743,11 +3652,13 @@ export class TaskOrchestrator {
     };
     const sectionSystemPrompt = buildSectionSystemPrompt(this.state.creativeSettings.systemPrompt);
 
-    section.status = 'processing';
-    section.error = undefined;
-    this.emit('chunk-start', sectionIndex);
-
     try {
+      await this.ensureWritingPreparation();
+
+      section.status = 'processing';
+      section.error = undefined;
+      this.emit('chunk-start', sectionIndex);
+
       const result = await this.requestStructuredData(
         section,
         {
@@ -2767,10 +3678,12 @@ export class TaskOrchestrator {
             this.state.chunkSyntheses,
             this.state.pageAnalyses,
             this.state.creativeSettings.writingMode,
+            this.state.writingPreparation.voiceGuide,
             this.state.creativeSettings.userPromptTemplate
           ),
           temperature: this.state.creativeSettings.temperature,
           maxOutputTokens: WRITING_MAX_TOKENS,
+          timeoutMs: SECTION_WRITING_TIMEOUT_MS,
         },
         parseSectionResult
       );
@@ -2791,6 +3704,17 @@ export class TaskOrchestrator {
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error);
+      if (
+        this.state.writingPreparation.status !== 'success'
+        && this.state.writingPreparation.status !== 'skipped'
+      ) {
+        section.status = 'pending';
+        section.error = undefined;
+        this.emit('chunk-error', sectionIndex, errorMessage);
+        this.pauseAfterSingleItemReplay('write-sections', sectionIndex);
+        throw error;
+      }
+
       section.status = 'error';
       section.error = errorMessage;
       this.emit('chunk-error', sectionIndex, errorMessage);
@@ -2805,50 +3729,11 @@ export class TaskOrchestrator {
     this.state.finalPolish = cloneFinalPolish(DEFAULT_FINAL_POLISH);
     this.refreshFullNovel();
     this.beginSingleItemReplay('polish-novel', 0);
-
-    const sectionDraft = this.state.novelSections
-      .filter((section) => section.status === 'success' && section.markdownBody?.trim())
-      .map((section) => section.markdownBody!.trim())
-      .join('\n\n');
-
-    if (!sectionDraft) {
-      this.state.finalPolish.status = 'skipped';
-      this.state.finalPolish.error = '没有可用于统稿的章节正文。';
-      this.refreshFullNovel();
-      this.emit('chunk-skip', 0);
-      this.pauseAfterSingleItemReplay('polish-novel', 0);
-      return;
-    }
-
-    this.state.finalPolish.status = 'processing';
-    this.state.finalPolish.error = undefined;
     this.emit('chunk-start', 0);
 
     try {
-      const result = await this.requestStructuredData(
-        this.state.finalPolish,
-        {
-          stage: 'polish-novel',
-          itemLabel: '全书统稿',
-          chunkIndex: 0,
-          imageNames: this.state.pageAnalyses.map((page) => page.imageName),
-          images: [],
-          systemPrompt: buildFinalPolishSystemPrompt(this.state.creativeSettings.systemPrompt),
-          userPrompt: buildFinalPolishUserPrompt(
-            this.state.globalSynthesis,
-            sectionDraft,
-            this.state.creativeSettings.writingMode
-          ),
-          temperature: this.state.creativeSettings.temperature,
-          maxOutputTokens: 8192,
-        },
-        parseFinalPolishResult
-      );
-
-      this.state.finalPolish.markdownBody = result.novelText;
-      this.state.finalPolish.status = 'success';
-      this.refreshFullNovel();
-      this.emit('chunk-success', 0);
+      const result = await this.executeFinalPolishStage();
+      this.emit(result === 'skipped' ? 'chunk-skip' : 'chunk-success', 0);
       this.pauseAfterSingleItemReplay('polish-novel', 0);
       return;
     } catch (error) {
@@ -2877,6 +3762,7 @@ export class TaskOrchestrator {
       pageAnalyses: [],
       chunkSyntheses: [],
       globalSynthesis: cloneGlobalSynthesis(DEFAULT_STORY_SYNTHESIS),
+      writingPreparation: cloneWritingPreparation(DEFAULT_WRITING_PREPARATION),
       novelSections: [],
       finalPolish: cloneFinalPolish(DEFAULT_FINAL_POLISH),
       memory: { ...DEFAULT_MEMORY_STATE },
