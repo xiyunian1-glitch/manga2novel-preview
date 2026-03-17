@@ -2034,6 +2034,7 @@ export class TaskOrchestrator {
       state.lastAIRequest.lastError = interruptionMessage;
       if (lastAttempt && !lastAttempt.finishedAt) {
         lastAttempt.finishedAt = new Date().toISOString();
+        lastAttempt.outcome = 'error';
         lastAttempt.error = lastAttempt.error || interruptionMessage;
         lastAttempt.nextAction = lastAttempt.nextAction || '请点击“继续”恢复任务';
       }
@@ -3040,7 +3041,7 @@ export class TaskOrchestrator {
             model,
             sentAt,
             maxOutputTokens,
-            outcome: 'error',
+            outcome: 'running',
           },
         ],
       };

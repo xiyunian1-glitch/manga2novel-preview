@@ -223,7 +223,7 @@ export interface LastAIRequestAttempt {
   sentAt: string;
   finishedAt?: string;
   maxOutputTokens?: number;
-  outcome: 'success' | 'error';
+  outcome: 'running' | 'success' | 'error';
   error?: string;
   nextAction?: string;
 }

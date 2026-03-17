@@ -188,6 +188,7 @@ export default function Manga2NovelApp() {
   const hasImages = images.length > 0;
   const canStart = hasApiKey && modelReady && hasImages && !isRunning;
   const lastAIRequest = taskState.lastAIRequest;
+  const retryHistoryAttempts = (lastAIRequest?.attempts || []).filter((attempt) => attempt.sequence > 1);
   const hasPreviewContent = taskState.novelSections.some((item) => (
     item.status === 'success' && Boolean(item.markdownBody?.trim())
   )) || Boolean(taskState.finalPolish.markdownBody?.trim());
@@ -419,9 +420,9 @@ export default function Manga2NovelApp() {
             </div>
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground">自动重试历史</div>
-              {lastAIRequest?.attempts.length ? (
+              {retryHistoryAttempts.length ? (
                 <div className="space-y-2">
-                  {lastAIRequest.attempts.map((attempt) => (
+                  {retryHistoryAttempts.map((attempt) => (
                     <div
                       key={`${attempt.sequence}-${attempt.sentAt}`}
                       className="rounded-lg border bg-background/80 px-3 py-2 text-xs leading-6"
@@ -430,8 +431,10 @@ export default function Manga2NovelApp() {
                         <span className="font-medium">第 {attempt.sequence} 次</span>
                         <span>模型：{attempt.model}</span>
                         <span>时间：{formatRequestTimestamp(attempt.sentAt)}</span>
-                        <Badge variant={attempt.outcome === 'success' ? 'default' : 'outline'}>
-                          {attempt.outcome === 'success' ? '成功' : '失败'}
+                        <Badge
+                          variant={attempt.outcome === 'success' ? 'default' : attempt.outcome === 'running' ? 'secondary' : 'outline'}
+                        >
+                          {attempt.outcome === 'success' ? '成功' : attempt.outcome === 'running' ? '进行中' : '失败'}
                         </Badge>
                       </div>
                       <div className="mt-1 text-muted-foreground">
