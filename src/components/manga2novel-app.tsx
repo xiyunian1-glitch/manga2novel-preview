@@ -381,22 +381,22 @@ export default function Manga2NovelApp() {
       switch (stage) {
         case 'analyze-pages': {
           const pageNumber = await reanalyzePage(itemIndex);
-          toast.success(`第 ${pageNumber} 页已重新分析。你可以继续挑页重跑，准备好后再点“继续”。`);
+          toast.success(`第 ${pageNumber} 页已重新分析。后面的内容先保留，点“继续”会从受影响的位置往后刷新。`);
           return;
         }
         case 'synthesize-chunks': {
           const chunkNumber = await regenerateChunk(itemIndex);
-          toast.success(`第 ${chunkNumber} 块已重新综合。受影响的后续综合已标记为待更新。`);
+          toast.success(`第 ${chunkNumber} 块已重新综合。后面的结果先保留，点“继续”会接着往后刷新。`);
           return;
         }
         case 'synthesize-story': {
           await regenerateStory();
-          toast.success('整书综合已重新生成。后续章节已标记为待更新。');
+          toast.success('整书综合已重新生成。已有章节先保留，确认大纲后点“继续”即可往后刷新。');
           return;
         }
         case 'write-sections': {
           const sectionNumber = await regenerateSection(itemIndex);
-          toast.success(`第 ${sectionNumber} 节已重新生成。后续章节已标记为待更新。`);
+          toast.success(`第 ${sectionNumber} 节已重新生成。后面的章节先保留，点“继续”会从后续章节往后刷新。`);
           return;
         }
         case 'polish-novel': {

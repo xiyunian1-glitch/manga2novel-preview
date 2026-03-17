@@ -1496,7 +1496,7 @@ export class TaskOrchestrator {
       section.status === 'success'
       || section.status === 'processing'
       || section.status === 'skipped'
-      || Boolean(section.markdownBody?.trim())
+      || (section.status !== 'pending' && Boolean(section.markdownBody?.trim()))
     ));
 
     if (hasStartedWriting) {
@@ -1717,7 +1717,7 @@ export class TaskOrchestrator {
     }
 
     this.state.fullNovel = this.state.novelSections
-      .filter((section) => section.status === 'success' && section.markdownBody)
+      .filter((section) => section.status !== 'error' && section.markdownBody?.trim())
       .map((section) => section.markdownBody!.trim())
       .filter(Boolean)
       .join('\n\n');
@@ -2123,6 +2123,7 @@ export class TaskOrchestrator {
       this.state.writingPreparation.voiceGuide = result.voiceGuide.trim();
       this.state.writingPreparation.status = 'success';
       this.state.writingPreparation.error = undefined;
+      this.state.writingPreparation.retryCount = 0;
       this.emit('chunk-success', 0);
     } catch (error) {
       if (isAbortError(error)) {
@@ -2426,7 +2427,7 @@ export class TaskOrchestrator {
     state.fullNovel = state.finalPolish.status === 'success' && state.finalPolish.markdownBody?.trim()
       ? state.finalPolish.markdownBody.trim()
       : state.novelSections
-        .filter((section) => section.status === 'success' && section.markdownBody?.trim())
+        .filter((section) => section.status !== 'error' && section.markdownBody?.trim())
         .map((section) => section.markdownBody!.trim())
         .join('\n\n');
 
@@ -2659,10 +2660,12 @@ export class TaskOrchestrator {
       ...fallback,
       status: 'skipped',
       outlineConfirmed: this.isSplitDraftMode(),
+      retryCount: 0,
       error: errorMessage,
     };
     this.state.memory.globalSummary = fallback.storyOverview;
     this.initializeSectionsFromGlobalSynthesis();
+    this.markSectionsPendingFrom(0);
     this.emit('chunk-error', 0, errorMessage);
     this.emit('chunk-skip', 0);
   }
@@ -2674,6 +2677,7 @@ export class TaskOrchestrator {
     }
 
     section.status = 'skipped';
+    section.retryCount = 0;
     section.error = errorMessage;
     this.refreshFullNovel();
     this.emit('chunk-error', index, errorMessage);
@@ -2743,6 +2747,60 @@ export class TaskOrchestrator {
       this.state.chunks[index].error = undefined;
     }
     this.resetGlobalSynthesisAndSections();
+  }
+
+  private markWritingPreparationPending() {
+    this.state.writingPreparation.status = 'pending';
+    this.state.writingPreparation.error = undefined;
+    this.state.writingPreparation.retryCount = 0;
+  }
+
+  private resetFinalPolishForRefresh() {
+    this.state.finalPolish = cloneFinalPolish(DEFAULT_FINAL_POLISH);
+    this.refreshFullNovel();
+  }
+
+  private markSectionsPendingFrom(startIndex: number) {
+    for (let index = startIndex; index < this.state.novelSections.length; index += 1) {
+      const section = this.state.novelSections[index];
+      section.status = 'pending';
+      section.error = undefined;
+      section.retryCount = 0;
+    }
+
+    if (startIndex <= 0) {
+      this.markWritingPreparationPending();
+    }
+
+    this.resetFinalPolishForRefresh();
+    this.state.memory.completedChunks = this.state.novelSections
+      .slice(0, startIndex)
+      .filter((section) => section.status === 'success')
+      .map((section) => section.index);
+    this.state.memory.previousEnding = this.findPreviousContinuitySummary(startIndex);
+    this.state.memory.globalSummary = this.state.globalSynthesis.storyOverview;
+  }
+
+  private markGlobalSynthesisPending() {
+    this.state.globalSynthesis.status = 'pending';
+    this.state.globalSynthesis.error = undefined;
+    this.state.globalSynthesis.retryCount = 0;
+    this.state.globalSynthesis.outlineConfirmed = false;
+    this.markWritingPreparationPending();
+    this.markSectionsPendingFrom(0);
+  }
+
+  private markChunkSynthesesPendingFrom(startIndex: number) {
+    for (let index = startIndex; index < this.state.chunkSyntheses.length; index += 1) {
+      const chunk = this.state.chunkSyntheses[index];
+      chunk.status = 'pending';
+      chunk.error = undefined;
+      chunk.retryCount = 0;
+      this.state.chunks[index].status = 'pending';
+      this.state.chunks[index].error = undefined;
+    }
+
+    this.markGlobalSynthesisPending();
   }
 
   private resetSectionsFrom(startIndex: number) {
@@ -3168,10 +3226,12 @@ export class TaskOrchestrator {
         sceneOutline: optimizeGeneratedSceneOutline(result.sceneOutline),
         writingConstraints: result.writingConstraints,
         outlineConfirmed: this.isSplitDraftMode(),
+        retryCount: 0,
         error: undefined,
       };
       this.state.memory.globalSummary = result.storyOverview || this.state.memory.globalSummary;
       this.initializeSectionsFromGlobalSynthesis();
+      this.markSectionsPendingFrom(0);
       this.emit('chunk-success', 0);
       if (this.isSplitDraftMode()) {
         return true;
@@ -3814,6 +3874,7 @@ export class TaskOrchestrator {
           chunkSynthesis.keyDevelopments = fallback.keyDevelopments;
           chunkSynthesis.continuitySummary = fallback.continuitySummary;
           chunkSynthesis.status = 'skipped';
+          chunkSynthesis.retryCount = 0;
           chunkSynthesis.error = undefined;
           this.state.chunks[chunkSynthesis.index].status = 'skipped';
           this.state.chunks[chunkSynthesis.index].plotSummary = fallback.summary;
@@ -3831,10 +3892,12 @@ export class TaskOrchestrator {
           ...fallback,
           status: 'skipped',
           outlineConfirmed: this.isSplitDraftMode(),
+          retryCount: 0,
           error: undefined,
         };
         this.state.memory.globalSummary = fallback.storyOverview;
         this.initializeSectionsFromGlobalSynthesis();
+        this.markSectionsPendingFrom(0);
         this.state.currentStage = 'synthesize-story';
         this.state.currentChunkIndex = 0;
         this.emit('chunk-skip', 0);
@@ -3853,6 +3916,7 @@ export class TaskOrchestrator {
         const section = this.state.novelSections[this.state.currentChunkIndex];
         if (section) {
           section.status = 'skipped';
+          section.retryCount = 0;
           section.error = undefined;
         }
         this.refreshFullNovel();
@@ -3939,7 +4003,7 @@ export class TaskOrchestrator {
     const chunkIndex = targetPage.chunkIndex;
     const batchIndex = targetPage.analysisBatchIndex;
     this.clearPageAnalysis(targetPage);
-    this.resetChunkSynthesesFrom(chunkIndex);
+    this.markChunkSynthesesPendingFrom(chunkIndex);
     this.beginSingleItemReplay('analyze-pages', batchIndex);
 
     const readyImages = this.getReadyImagesInOrder();
@@ -3976,7 +4040,7 @@ export class TaskOrchestrator {
       throw new Error(`Chunk synthesis ${chunkIndex + 1} does not exist.`);
     }
 
-    this.resetChunkSynthesesFrom(chunkIndex);
+    this.markChunkSynthesesPendingFrom(chunkIndex);
     this.beginSingleItemReplay('synthesize-chunks', chunkIndex);
 
     chunkSynthesis.status = 'processing';
@@ -4015,7 +4079,10 @@ export class TaskOrchestrator {
   async regenerateStoryAndPause(): Promise<void> {
     this.ensureReadyForSingleItemReplay('regenerating the story synthesis');
 
-    this.resetGlobalSynthesisAndSections();
+    this.state.globalSynthesis.status = 'pending';
+    this.state.globalSynthesis.error = undefined;
+    this.state.globalSynthesis.retryCount = 0;
+    this.state.globalSynthesis.outlineConfirmed = false;
     this.beginSingleItemReplay('synthesize-story', 0);
 
     this.state.globalSynthesis.status = 'processing';
@@ -4052,10 +4119,12 @@ export class TaskOrchestrator {
         sceneOutline: optimizeGeneratedSceneOutline(result.sceneOutline),
         writingConstraints: result.writingConstraints,
         outlineConfirmed: this.isSplitDraftMode(),
+        retryCount: 0,
         error: undefined,
       };
       this.state.memory.globalSummary = result.storyOverview || this.state.memory.globalSummary;
       this.initializeSectionsFromGlobalSynthesis();
+      this.markSectionsPendingFrom(0);
       this.emit('chunk-success', 0);
       this.pauseAfterSingleItemReplay('synthesize-story', 0);
       return;
@@ -4082,7 +4151,7 @@ export class TaskOrchestrator {
       throw new Error(`Section ${sectionIndex + 1} does not exist.`);
     }
 
-    this.resetSectionsFrom(sectionIndex);
+    this.markSectionsPendingFrom(sectionIndex);
     this.beginSingleItemReplay('write-sections', sectionIndex);
 
     const scenePlan = this.state.globalSynthesis.sceneOutline[sectionIndex] || {

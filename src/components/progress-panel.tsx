@@ -298,7 +298,7 @@ function buildSectionItems(taskState: TaskState): ProgressItem[] {
 }
 
 function buildPolishItem(taskState: TaskState): ProgressItem[] {
-  const body = taskState.finalPolish.markdownBody || taskState.fullNovel || '';
+  const body = taskState.finalPolish.markdownBody || '';
   return [{
     key: 'final-polish',
     stage: 'polish-novel',
