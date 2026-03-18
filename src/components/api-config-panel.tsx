@@ -138,7 +138,7 @@ const QUICK_ROUTE_GROUPS: QuickRouteGroup[] = [
   {
     id: 'writing',
     label: '写作流程',
-    description: '章节写作和全书统稿统一走第二套接口。',
+    description: '章节写作和全书润色统一走第二套接口。',
     stages: ['write-sections', 'polish-novel'],
   },
 ];
@@ -487,7 +487,7 @@ export function APIConfigPanel({
       {
         label: '写作分流',
         value: writingLabel,
-        detail: quickRouteStates.writing.mixed ? '组内已细分' : '章节写作 / 全书统稿',
+        detail: quickRouteStates.writing.mixed ? '组内已细分' : '章节写作 / 全书润色',
       },
       {
         label: '最近更新',

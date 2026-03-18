@@ -23,6 +23,10 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import {
+  applyDialogueResolutionMap,
+  createDialogueResolutionMap,
+} from '@/lib/dialogue-resolution';
 import { getTroubleshootingAdvice } from '@/lib/error-hints';
 import type { ChunkStatus, PipelineStage, RequestStage, TaskState } from '@/lib/types';
 import { WORKFLOW_MODE_LABELS } from '@/lib/types';
@@ -146,7 +150,7 @@ function stageLabel(stage: PipelineStage, taskState: TaskState): string {
     'synthesize-chunks': isSplitDraftMode(taskState) ? WORKFLOW_MODE_LABELS['split-draft'] : '分块综合',
     'synthesize-story': '整书综合',
     'write-sections': isSplitDraftMode(taskState) ? '完整正文生成' : '章节写作',
-    'polish-novel': '全书统稿',
+    'polish-novel': '全书润色',
   };
 
   return labels[stage];
@@ -199,6 +203,7 @@ function buildChunkPreview(
   const previewLines = [
     primaryLine,
     chunk.keyDevelopments.length > 0 ? `推进：${joinValues(chunk.keyDevelopments)}` : '',
+    chunk.dialogueResolutions.length > 0 ? `对白修正：${chunk.dialogueResolutions.length} 条` : '',
     chunk.continuitySummary?.trim() ? `承接：${chunk.continuitySummary}` : '',
   ].filter(Boolean);
 
@@ -220,33 +225,80 @@ function buildChunkPreview(
   }
 }
 
+function buildDialogueLineText(
+  speaker: string,
+  text: string,
+  marker = ''
+): string {
+  return `${speaker}${marker}：${text}`;
+}
+
+function buildResolutionDetail(
+  chunk: TaskState['chunkSyntheses'][number]
+): string {
+  if (chunk.dialogueResolutions.length === 0) {
+    return '无';
+  }
+
+  return chunk.dialogueResolutions.map((resolution) => {
+    const evidence = resolution.speakerEvidence?.trim()
+      ? `（依据：${resolution.speakerEvidence.trim()}）`
+      : '';
+    return `第 ${resolution.pageNumber} 页 #${resolution.lineIndex} ${buildDialogueLineText(
+      resolution.speaker,
+      resolution.text
+    )}${evidence}`;
+  }).join('\n');
+}
+
 function buildPageItem(taskState: TaskState): ProgressItem[] {
-  return taskState.pageAnalyses.map((page) => ({
-    key: `page-${page.index}`,
-    stage: 'analyze-pages',
-    itemIndex: page.index,
-    label: `第 ${page.pageNumber} 页`,
-    meta: [page.location, page.timeHint].filter(Boolean).join(' / ') || '等待提取场景信息',
-    status: page.status,
-    runtimeMs: page.runtimeMs,
-    runtimeStartedAt: page.runtimeStartedAt,
-    error: page.error,
-    preview: [
-      `摘要：${page.summary || '暂无'}`,
-      `关键事件：${joinValues(page.keyEvents)}`,
-      `角色：${joinValues(page.characters.map((character) => character.name))}`,
-    ].join('\n'),
-    detail: [
-      `页码：第 ${page.pageNumber} 页`,
-      `摘要：${page.summary || '暂无'}`,
-      `地点：${page.location || '未知'}`,
-      `时间：${page.timeHint || '未知'}`,
-      `关键事件：${joinValues(page.keyEvents)}`,
-      `对白：${page.dialogue.map((line) => `${line.speaker}：${line.text}`).join('\n') || '无'}`,
-      `画面文字：${page.visualText.join('\n') || '无'}`,
-      page.error ? `错误：${page.error}` : '',
-    ].filter(Boolean).join('\n\n'),
-  }));
+  const dialogueResolutionMap = createDialogueResolutionMap(taskState.chunkSyntheses);
+
+  return taskState.pageAnalyses.map((page) => {
+    const resolvedDialogue = applyDialogueResolutionMap(
+      page.pageNumber,
+      page.dialogue,
+      dialogueResolutionMap
+    );
+    const correctedLineCount = resolvedDialogue.reduce((count, line, index) => (
+      page.dialogue[index]?.speaker?.trim() !== line.speaker.trim()
+        ? count + 1
+        : count
+    ), 0);
+
+    return {
+      key: `page-${page.index}`,
+      stage: 'analyze-pages',
+      itemIndex: page.index,
+      label: `第 ${page.pageNumber} 页`,
+      meta: [page.location, page.timeHint].filter(Boolean).join(' / ') || '等待提取场景信息',
+      status: page.status,
+      runtimeMs: page.runtimeMs,
+      runtimeStartedAt: page.runtimeStartedAt,
+      error: page.error,
+      preview: [
+        `摘要：${page.summary || '暂无'}`,
+        `关键事件：${joinValues(page.keyEvents)}`,
+        `角色：${joinValues(page.characters.map((character) => character.name))}`,
+        correctedLineCount > 0 ? `对白修正：${correctedLineCount} 条` : '',
+      ].join('\n'),
+      detail: [
+        `页码：第 ${page.pageNumber} 页`,
+        `摘要：${page.summary || '暂无'}`,
+        `地点：${page.location || '未知'}`,
+        `时间：${page.timeHint || '未知'}`,
+        `关键事件：${joinValues(page.keyEvents)}`,
+        `对白：${resolvedDialogue.map((line, index) => {
+          const originalSpeaker = page.dialogue[index]?.speaker?.trim() || '';
+          const marker = originalSpeaker !== line.speaker.trim() ? '（修正）' : '';
+          return buildDialogueLineText(line.speaker, line.text, marker);
+        }).join('\n') || '无'}`,
+        `画面文字：${page.visualText.join('\n') || '无'}`,
+        correctedLineCount > 0 ? `已应用块级对白归属修正：${correctedLineCount} 条` : '',
+        page.error ? `错误：${page.error}` : '',
+      ].filter(Boolean).join('\n\n'),
+    };
+  });
 }
 
 function buildChunkItems(taskState: TaskState): ProgressItem[] {
@@ -268,6 +320,7 @@ function buildChunkItems(taskState: TaskState): ProgressItem[] {
         `摘要：${chunk.summary || '暂无'}`,
         chunk.draftText ? `分段草稿：\n${chunk.draftText}` : '',
         `推进：${joinValues(chunk.keyDevelopments)}`,
+        `对白归属修正：${buildResolutionDetail(chunk)}`,
         `承接：${chunk.continuitySummary || '暂无'}`,
         chunk.error ? `错误：${chunk.error}` : '',
       ].filter(Boolean).join('\n\n'),
@@ -312,8 +365,8 @@ function buildSectionItems(taskState: TaskState): ProgressItem[] {
     key: 'writing-preparation',
     stage: 'write-sections',
     itemIndex: -1,
-    label: '写作前准备',
-    meta: taskState.writingPreparation.voiceGuide?.trim() ? '已生成统一写作指引' : '等待生成写作指引',
+    label: '写作前全书统稿',
+    meta: taskState.writingPreparation.voiceGuide?.trim() ? '已生成写作前统稿指引' : '等待生成写作前统稿指引',
     status: taskState.writingPreparation.status,
     runtimeMs: taskState.writingPreparation.runtimeMs,
     runtimeStartedAt: taskState.writingPreparation.runtimeStartedAt,
@@ -354,15 +407,15 @@ function buildPolishItem(taskState: TaskState): ProgressItem[] {
     key: 'final-polish',
     stage: 'polish-novel',
     itemIndex: 0,
-    label: '全书统稿',
-    meta: body.trim() ? '已生成统稿结果' : '等待全书统稿',
+    label: '全书润色',
+    meta: body.trim() ? '已生成润色结果' : '等待全书润色',
     status: taskState.finalPolish.status,
     runtimeMs: taskState.finalPolish.runtimeMs,
     runtimeStartedAt: taskState.finalPolish.runtimeStartedAt,
     error: taskState.finalPolish.error,
     preview: extractPreview(body, 280),
     detail: [
-      body || '暂无统稿正文',
+      body || '暂无润色正文',
       taskState.finalPolish.error ? `错误：${taskState.finalPolish.error}` : '',
     ].filter(Boolean).join('\n\n'),
   }];
@@ -416,16 +469,16 @@ function buildStageCards(taskState: TaskState): StageCard[] {
     stage: 'write-sections',
     title: isSplitDraftMode(taskState) ? '完整正文生成' : '章节写作',
     value: `${countCompleted(taskState.novelSections)} / ${taskState.novelSections.length}`,
-    secondary: taskState.writingPreparation.voiceGuide?.trim() ? '写作前准备已完成' : undefined,
+    secondary: taskState.writingPreparation.voiceGuide?.trim() ? '写作前全书统稿已完成' : undefined,
     hint: isSplitDraftMode(taskState) ? '查看最终正文生成' : '查看各章节正文',
   });
 
   if (taskState.config.enableFinalPolish) {
     cards.push({
       stage: 'polish-novel',
-      title: '全书统稿',
+      title: '全书润色',
       value: statusLabel(taskState.finalPolish.status),
-      hint: '查看统稿结果',
+      hint: '查看润色结果',
     });
   }
 

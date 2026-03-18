@@ -212,7 +212,7 @@ export function getTroubleshootingAdvice(error?: string | null): Troubleshooting
       '这一步需要把图片一起发给模型，但你现在选的接口只接受纯文本消息，所以请求一发出去就被拒了。',
       [
         '逐页分析这类含图片的阶段，改用支持视觉输入的模型。',
-        '如果你想继续用 DeepSeek，可以只把它放到整书综合、章节写作、全书统稿这些纯文本阶段。',
+        '如果你想继续用 DeepSeek，可以只把它放到整书综合、写作前全书统稿、章节写作、全书润色这些纯文本阶段。',
         '最直接的做法是把图片阶段切到 Gemini，后面文本阶段再切回 DeepSeek。',
       ]
     );

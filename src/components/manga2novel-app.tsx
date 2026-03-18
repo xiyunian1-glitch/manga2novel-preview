@@ -212,7 +212,7 @@ export default function Manga2NovelApp() {
       `写作模式：${taskState.creativeSettings.writingMode === 'faithful' ? '忠实转写' : '文学改写'}`,
       `逐页分析：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`,
       `分块综合：${taskState.config.synthesisChunkCount} 块`,
-      `全书统稿：${taskState.config.enableFinalPolish ? '开' : '关'}`,
+      `全书润色：${taskState.config.enableFinalPolish ? '开' : '关'}`,
       `自动跳过：${taskState.config.autoSkipOnError ? '开' : '关'}`,
     ];
   }, [
@@ -240,7 +240,7 @@ export default function Manga2NovelApp() {
       `流程模式：${workflowModeLabel}`,
       workflowSummary,
       synthesisSummary,
-      `全书统稿：${taskState.config.enableFinalPolish ? '开' : '关'}`,
+      `全书润色：${taskState.config.enableFinalPolish ? '开' : '关'}`,
       `自动跳过：${taskState.config.autoSkipOnError ? '开' : '关'}`,
     ];
   }, [
@@ -293,7 +293,7 @@ export default function Manga2NovelApp() {
           : null;
       case 'write-sections': {
         if (taskState.writingPreparation.status === 'error' && taskState.writingPreparation.error) {
-          return { label: '写作前准备', error: taskState.writingPreparation.error };
+          return { label: '写作前全书统稿', error: taskState.writingPreparation.error };
         }
 
         const failedSection = taskState.novelSections[taskState.currentChunkIndex];
@@ -304,7 +304,7 @@ export default function Manga2NovelApp() {
       }
       case 'polish-novel':
         return taskState.finalPolish.error
-          ? { label: '全书统稿', error: taskState.finalPolish.error }
+          ? { label: '全书润色', error: taskState.finalPolish.error }
           : null;
       default:
         return null;
@@ -401,7 +401,7 @@ export default function Manga2NovelApp() {
         }
         case 'polish-novel': {
           await regenerateFinalPolish();
-          toast.success('全书统稿已重新生成。你可以检查结果后再继续。');
+          toast.success('全书润色已重新生成。你可以检查结果后再继续。');
           return;
         }
         default:

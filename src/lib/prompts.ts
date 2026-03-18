@@ -7,6 +7,7 @@ import type {
   StorySynthesis,
   WritingMode,
 } from './types';
+import { applyDialogueResolutionMap, createDialogueResolutionMap } from './dialogue-resolution';
 import { WRITING_MODE_LABELS } from './types';
 
 export const CUSTOM_PRESET_ID = 'custom';
@@ -326,10 +327,20 @@ const PAGE_ANALYSIS_DIALOGUE_RULES = `对白归属补充规则：
 6. speakerConfidence 只能填写 high / medium / low。
 7. 只要不够确定，就优先把 speaker 写成“未确认”，并把 speakerConfidence 设为 low，而不是猜一个角色名。`;
 
+const CHUNK_DIALOGUE_RESOLUTION_ITEM_OUTPUT_SCHEMA = `{
+  "pageNumber": 1,
+  "lineIndex": 1,
+  "speaker": "纠正后的说话人姓名",
+  "text": "对应对白原文，用于定位",
+  "speakerEvidence": "支撑纠正归属的块内可见证据或跨页连续证据",
+  "speakerConfidence": "high"
+}`;
+
 const CHUNK_SYNTHESIS_OUTPUT_SCHEMA = `{
   "title": "本块标题",
   "summary": "本块剧情摘要",
   "keyDevelopments": ["本块的重要推进"],
+  "dialogueResolutions": [${CHUNK_DIALOGUE_RESOLUTION_ITEM_OUTPUT_SCHEMA}],
   "continuitySummary": "下一块写作需要承接的状态"
 }`;
 
@@ -396,7 +407,7 @@ const FINAL_POLISH_VOICE_GUIDE_OUTPUT_SCHEMA = `{
 }`;
 
 const WRITING_PREPARATION_OUTPUT_SCHEMA = `{
-  "voiceGuide": "A concise section-writing guide for the upcoming chapter drafting stage."
+  "voiceGuide": "A concise pre-drafting whole-book unification guide for the upcoming chapter drafting stage."
 }`;
 
 const FINAL_POLISH_VOICE_GUIDE_SYSTEM_PROMPT_BODY = `## Your task
@@ -412,10 +423,10 @@ ${FINAL_POLISH_VOICE_GUIDE_OUTPUT_SCHEMA}`;
 
 const WRITING_PREPARATION_SYSTEM_PROMPT_BODY = `## Your task
 You will receive story-level synthesis before section drafting starts.
-Create a compact writing guide that can be reused across every section so the novel stays consistent from the first chapter onward.
+Create a compact whole-book unification guide that can be reused across every section so the novel stays consistent from the first chapter onward.
 ## Output rules
-1. Keep the guide concise, concrete, and directly reusable for section drafting.
-2. Focus on tone, diction, dialogue style, paragraph rhythm, perspective consistency, naming consistency, and continuity priorities.
+1. Keep the guide concise, concrete, and directly reusable before section drafting starts.
+2. Focus on tone, diction, naming consistency, dialogue carry-forward, dialogue style, paragraph rhythm, perspective consistency, and continuity priorities.
 3. Do not invent new plot points, characters, settings, or endings.
 4. Base the guide only on the provided synthesis materials.
 5. The voiceGuide field must be a plain string, not an object or array.
@@ -595,6 +606,40 @@ function buildLocationTimeline(pageAnalyses: PageAnalysis[]) {
     .sort((left, right) => left.chunkIndex - right.chunkIndex);
 }
 
+function buildChunkDialogueResolutionAudit(pageAnalyses: PageAnalysis[]) {
+  return pageAnalyses.flatMap((page) => page.dialogue.map((line, index) => ({
+    pageNumber: page.pageNumber,
+    lineIndex: index + 1,
+    currentSpeaker: line.speaker,
+    text: line.text,
+    speakerEvidence: line.speakerEvidence || '',
+    speakerConfidence: line.speakerConfidence || '',
+  })));
+}
+
+function buildSectionDialogueLedger(
+  pages: Array<{
+    pageNumber: number;
+    dialogue: Array<{
+      speaker: string;
+      text: string;
+      speakerEvidence?: string;
+      speakerConfidence?: string;
+    }>;
+  }>
+) {
+  return pages.flatMap((page) => page.dialogue
+    .filter((line) => Boolean(line.text.trim()))
+    .map((line, index) => ({
+      pageNumber: page.pageNumber,
+      lineIndex: index + 1,
+      speaker: line.speaker,
+      text: line.text,
+      speakerEvidence: line.speakerEvidence || '',
+      speakerConfidence: line.speakerConfidence || '',
+    })));
+}
+
 function buildChunkContinuityChain(chunkSyntheses: ChunkSynthesis[]) {
   return chunkSyntheses.map((chunk) => ({
     index: chunk.index,
@@ -766,6 +811,7 @@ export function buildContextualChunkSynthesisPrompt(
     includeChunkImages?: boolean;
   }
 ): string {
+  const dialogueResolutionAudit = buildChunkDialogueResolutionAudit(pageAnalyses);
   const continuityContext = {
     previousChunk: context?.previousChunk
       ? {
@@ -800,6 +846,9 @@ ${sourceGuidance}
 Current chunk page analyses:
 ${stringifyPromptData(pageAnalyses)}
 
+Current chunk dialogue lines for optional speaker correction (lineIndex is 1-based and matches the dialogue array order inside each page analysis):
+${stringifyPromptData(dialogueResolutionAudit)}
+
 Continuity context for adjacent chunks (use only for coherence; do not merge adjacent-chunk events into the current-chunk summary):
 ${stringifyPromptData(continuityContext)}
 
@@ -809,6 +858,9 @@ Requirements:
 3. If adjacent-chunk context conflicts with the current chunk pages, trust the current chunk pages first.
 4. Character names, roles, and relationships should stay consistent with the continuity context whenever the current chunk supports them.
 5. When chunk images are attached, use them to recover omitted visual beats and scene transitions instead of flattening the chunk into a brief restatement of the page analyses.
+6. dialogueResolutions should include only the dialogue lines whose speaker can now be assigned or corrected more confidently from the current chunk images plus chunk-wide continuity.
+7. Each dialogueResolutions item must reference an existing pageNumber and lineIndex from the current chunk dialogue audit.
+8. If a line is still uncertain, omit it from dialogueResolutions instead of guessing. Do not output “未确认” as a corrected speaker.
 
 Strictly output JSON:
 ${CHUNK_SYNTHESIS_OUTPUT_SCHEMA}`;
@@ -835,9 +887,10 @@ ${stringifyPromptData(globalContext)}
 Requirements:
 1. storyOverview, characterGuide, and sceneOutline should primarily reflect the chunk synthesis data, while the continuity context is used to keep names, motives, relationships, and transitions consistent.
 2. characterGuide should merge recurring roles, relationship hints, and cross-chunk changes for the same characters.
-3. sceneOutline should respect chunk order and continuity summaries, especially at boundaries between adjacent chunks.
-4. sceneOutline.chunkIndexes must reference existing chunk indexes only.
-5. writingConstraints should keep only the constraints that materially affect later writing consistency.
+3. sceneOutline must contain exactly one scene item per chunk synthesis result, in the same order as the chunks.
+4. Each sceneOutline item.chunkIndexes must be a single-item array containing only its corresponding chunk index.
+5. sceneOutline summaries should preserve chunk boundaries while making adjacent transitions easier to write.
+6. writingConstraints should keep only the constraints that materially affect later writing consistency.
 
 Strictly output JSON:
 ${GLOBAL_SYNTHESIS_OUTPUT_SCHEMA}`;
@@ -862,8 +915,9 @@ export function buildSectionUserPrompt(
     relatedPageAnalyses.length,
     relatedChunkIndexes.size
   );
-  const relatedChunks = chunkSyntheses
-    .filter((chunk) => relatedChunkIndexes.has(chunk.index))
+  const relatedChunkSyntheses = chunkSyntheses
+    .filter((chunk) => relatedChunkIndexes.has(chunk.index));
+  const relatedChunks = relatedChunkSyntheses
     .map((chunk) => ({
       index: chunk.index,
       title: chunk.title,
@@ -871,6 +925,7 @@ export function buildSectionUserPrompt(
       keyDevelopments: chunk.keyDevelopments,
       continuitySummary: chunk.continuitySummary,
     }));
+  const dialogueResolutionMap = createDialogueResolutionMap(relatedChunkSyntheses);
   const relatedPages = relatedPageAnalyses
     .map((page) => ({
       pageNumber: page.pageNumber,
@@ -878,7 +933,7 @@ export function buildSectionUserPrompt(
       location: page.location,
       timeHint: page.timeHint,
       keyEvents: page.keyEvents,
-      dialogue: page.dialogue,
+      dialogue: applyDialogueResolutionMap(page.pageNumber, page.dialogue, dialogueResolutionMap),
       narrationText: page.narrationText,
       visualText: page.visualText,
       characters: page.characters.map((character) => ({
@@ -888,6 +943,7 @@ export function buildSectionUserPrompt(
         relationshipHints: character.relationshipHints,
       })),
     }));
+  const sectionDialogueLedger = buildSectionDialogueLedger(relatedPages);
   const previousScene = storySynthesis.sceneOutline[sectionIndex - 1];
   const nextScene = storySynthesis.sceneOutline[sectionIndex + 1];
   const previousScenePages = previousScene
@@ -976,6 +1032,7 @@ export function buildSectionUserPrompt(
   ].join('\n');
   const enrichedSceneSourceBlock = [
     'Use the current section as the main source of truth. Use previous and next scene context only to smooth transitions, preserve character consistency, and maintain narrative continuity.',
+    'If the source contains explicit dialogue lines, preserve their concrete wording and corrected speaker attribution whenever the written scene still uses direct speech. Do not paraphrase most dialogue into summary narration.',
     '',
     `【写作模式】\n${WRITING_MODE_LABELS[writingMode]}：${buildWritingModeInstruction(writingMode, 'section')}`,
     writingGuide.trim()
@@ -985,6 +1042,9 @@ export function buildSectionUserPrompt(
     `【章节展开要求】\n${sectionLengthGuidance}`,
     '',
     sceneSourceBlock,
+    sectionDialogueLedger.length > 0
+      ? `\n【应优先带入成文的原台词】\n这些对白默认应尽量以直接引语进入正文，而不是被大量改写成转述。\n${stringifyPromptData(sectionDialogueLedger)}`
+      : '',
     '',
     'Section continuity context',
     stringifyPromptData(sectionContinuityContext),
@@ -1096,13 +1156,13 @@ export function buildWritingPreparationUserPrompt(
   };
 
   return [
-    'Build a compact section-writing guide before chapter drafting starts.',
+    'Build a compact pre-drafting whole-book unification guide before chapter drafting starts.',
     '',
     `Writing mode: ${WRITING_MODE_LABELS[writingMode]} / ${buildWritingModeInstruction(writingMode, 'section')}`,
     '',
     'Requirements:',
-    '1. The guide must be reusable across all upcoming sections.',
-    '2. Focus on tone, diction, dialogue handling, paragraph rhythm, perspective consistency, naming consistency, and continuity priorities.',
+    '1. The guide must be reusable across all upcoming sections before drafting starts.',
+    '2. Focus on tone, diction, naming consistency, dialogue carry-forward, dialogue handling, paragraph rhythm, perspective consistency, and continuity priorities.',
     '3. Keep it compact, concrete, and actionable for section drafting.',
     '4. Do not invent new plot facts, characters, settings, or endings.',
     '5. The voiceGuide field must be a plain string, not an object or array.',

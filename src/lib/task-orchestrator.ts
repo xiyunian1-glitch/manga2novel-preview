@@ -4,6 +4,7 @@
   ChunkSynthesis,
   CharacterCue,
   ChunkStatus,
+  DialogueResolution,
   DialogueLine,
   CreativeSettings,
   FinalPolish,
@@ -517,6 +518,83 @@ function normalizeDialogueLine(value: unknown): DialogueLine {
   };
 }
 
+function normalizeDialogueResolution(value: unknown): DialogueResolution | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const pageNumber = extractLoosePageNumber(value.pageNumber);
+  const lineIndex = extractLoosePageNumber(value.lineIndex ?? value.dialogueIndex ?? value.index);
+  const speaker = sanitizePageVisibleText(toString(value.speaker));
+  const text = sanitizePageVisibleText(toString(value.text));
+  const speakerEvidence = sanitizePageVisibleText(
+    toString(value.speakerEvidence ?? value.speaker_evidence)
+  );
+  const rawConfidence = toString(value.speakerConfidence ?? value.speaker_confidence).toLowerCase();
+  const speakerConfidence = rawConfidence === 'high' || rawConfidence === 'medium' || rawConfidence === 'low'
+    ? rawConfidence
+    : undefined;
+
+  if (!pageNumber || pageNumber <= 0 || !lineIndex || lineIndex <= 0) {
+    return null;
+  }
+
+  if (!speaker || /^(未知|未确认|不确定)$/u.test(speaker)) {
+    return null;
+  }
+
+  if (speakerConfidence === 'low') {
+    return null;
+  }
+
+  return {
+    pageNumber,
+    lineIndex,
+    speaker,
+    text,
+    speakerEvidence,
+    speakerConfidence,
+  };
+}
+
+function sanitizeChunkDialogueResolutions(
+  value: unknown,
+  pageAnalyses: Array<Pick<PageAnalysis, 'pageNumber' | 'dialogue'>>
+): DialogueResolution[] {
+  if (!Array.isArray(value) || pageAnalyses.length === 0) {
+    return [];
+  }
+
+  const pageDialogueCountByNumber = new Map(
+    pageAnalyses.map((page) => [page.pageNumber, page.dialogue.length])
+  );
+  const resolutionsByKey = new Map<string, DialogueResolution>();
+
+  for (const item of value) {
+    const resolution = normalizeDialogueResolution(item);
+    if (!resolution) {
+      continue;
+    }
+
+    const dialogueCount = pageDialogueCountByNumber.get(resolution.pageNumber);
+    if (!dialogueCount || resolution.lineIndex > dialogueCount) {
+      continue;
+    }
+
+    resolutionsByKey.set(
+      `${resolution.pageNumber}:${resolution.lineIndex}`,
+      resolution
+    );
+  }
+
+  return Array.from(resolutionsByKey.values())
+    .sort((left, right) => (
+      left.pageNumber === right.pageNumber
+        ? left.lineIndex - right.lineIndex
+        : left.pageNumber - right.pageNumber
+    ));
+}
+
 function sanitizeDialogueAssignments(
   dialogue: DialogueLine[],
   characters: CharacterCue[]
@@ -727,8 +805,9 @@ function parseChunkPageAnalysisResult(rawText: string, expectedPages: PageAnalys
 }
 
 function parseChunkSynthesisResult(
-  rawText: string
-): Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'continuitySummary'> {
+  rawText: string,
+  pageAnalyses: Array<Pick<PageAnalysis, 'pageNumber' | 'dialogue'>> = []
+): Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'dialogueResolutions' | 'continuitySummary'> {
   const parsed = extractJsonValue<Record<string, unknown>>(rawText);
 
   return {
@@ -736,6 +815,7 @@ function parseChunkSynthesisResult(
     summary: sanitizeNarrativeText(toString(parsed.summary)),
     draftText: sanitizeNarrativeText(toString(parsed.draftText)),
     keyDevelopments: sanitizeNarrativeArray(parsed.keyDevelopments),
+    dialogueResolutions: sanitizeChunkDialogueResolutions(parsed.dialogueResolutions, pageAnalyses),
     continuitySummary: sanitizeNarrativeText(toString(parsed.continuitySummary)),
   };
 }
@@ -850,7 +930,7 @@ function parseWritingPreparationResult(rawText: string): { voiceGuide: string } 
 function createFallbackChunkSynthesis(
   index: number,
   pageAnalyses: PageAnalysis[]
-): Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'continuitySummary'> {
+): Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'dialogueResolutions' | 'continuitySummary'> {
   const summaries = pageAnalyses
     .map((page) => page.summary)
     .filter((summary): summary is string => Boolean(summary));
@@ -862,6 +942,7 @@ function createFallbackChunkSynthesis(
     summary: summary || `第 ${index + 1} 块缺少足够的逐页分析数据。`,
     draftText: '',
     keyDevelopments: keyDevelopments.length > 0 ? keyDevelopments : ['缺少可靠事件提取'],
+    dialogueResolutions: [],
     continuitySummary: summary || '缺少可靠承接信息',
   };
 }
@@ -870,7 +951,7 @@ function createFallbackSplitDraftChunkSynthesis(
   index: number,
   pageNumbers: number[],
   imageNames: string[]
-): Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'continuitySummary'> {
+): Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'dialogueResolutions' | 'continuitySummary'> {
   const firstPage = pageNumbers[0];
   const lastPage = pageNumbers[pageNumbers.length - 1];
   const pageRange = typeof firstPage === 'number' && typeof lastPage === 'number'
@@ -887,6 +968,7 @@ function createFallbackSplitDraftChunkSynthesis(
       imageNames.length > 0 ? `对应图片：${imageNames.join(' / ')}` : '',
     ].filter(Boolean).join('\n'),
     keyDevelopments: [summary],
+    dialogueResolutions: [],
     continuitySummary: `${pageRange} 的承接信息缺失，建议补跑当前分段。`,
   };
 }
@@ -1080,6 +1162,56 @@ function optimizeGeneratedSceneOutline(sceneOutline: ScenePlan[]): ScenePlan[] {
     ...scene,
     sceneId: `scene-${index + 1}`,
   }));
+}
+
+function alignSceneOutlineToChunks(
+  sceneOutline: ScenePlan[],
+  chunkSyntheses: ChunkSynthesis[]
+): ScenePlan[] {
+  if (chunkSyntheses.length === 0) {
+    return [];
+  }
+
+  const normalizedSceneOutline = optimizeGeneratedSceneOutline(sceneOutline);
+  const directSceneByChunk = new Map<number, ScenePlan>();
+  const relatedScenesByChunk = new Map<number, ScenePlan[]>();
+
+  for (const scene of normalizedSceneOutline) {
+    const normalizedChunkIndexes = normalizeChunkIndexes(scene.chunkIndexes, chunkSyntheses.length);
+    for (const chunkIndex of normalizedChunkIndexes) {
+      const relatedScenes = relatedScenesByChunk.get(chunkIndex) || [];
+      relatedScenes.push(scene);
+      relatedScenesByChunk.set(chunkIndex, relatedScenes);
+    }
+
+    if (normalizedChunkIndexes.length === 1 && !directSceneByChunk.has(normalizedChunkIndexes[0])) {
+      directSceneByChunk.set(normalizedChunkIndexes[0], scene);
+    }
+  }
+
+  return chunkSyntheses.map((chunk, index) => {
+    const directScene = directSceneByChunk.get(chunk.index);
+    const relatedScenes = relatedScenesByChunk.get(chunk.index) || [];
+    const relatedSummary = relatedScenes
+      .map((scene) => sanitizeNarrativeText(scene.summary))
+      .find(Boolean);
+    const directTitle = sanitizeNarrativeText(toString(directScene?.title));
+    const chunkTitle = sanitizeNarrativeText(chunk.title);
+
+    return {
+      sceneId: `scene-${index + 1}`,
+      title: (
+        directTitle && !isGenericScenePlanTitle(directTitle)
+          ? directTitle
+          : chunkTitle || directTitle || `第 ${index + 1} 节`
+      ),
+      summary: sanitizeNarrativeText(toString(directScene?.summary))
+        || relatedSummary
+        || sanitizeNarrativeText(chunk.summary)
+        || `第 ${index + 1} 块缺少稳定摘要。`,
+      chunkIndexes: [chunk.index],
+    };
+  });
 }
 
 function normalizeSceneOutlineInput(sceneOutline: ScenePlan[], chunkCount: number): ScenePlan[] {
@@ -1414,7 +1546,7 @@ function buildRequestTimeoutMessage(
     case 'write-sections':
       return `“${stageName} / ${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求。建议拆细场景、缩短单章长度，或换更稳的写作模型后重试。`;
     case 'polish-novel':
-      return `“${stageName} / ${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求，避免界面一直转圈。建议稍后重试；如果这是整节统稿，程序会在可拆分时自动改用更小片段继续尝试。`;
+      return `“${stageName} / ${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求，避免界面一直转圈。建议稍后重试；如果这是整节润色，程序会在可拆分时自动改用更小片段继续尝试。`;
     default:
       return `“${request.itemLabel}”在 ${timeoutSeconds} 秒内没有完成，已自动停止当前请求。`;
   }
@@ -1451,7 +1583,7 @@ function buildTruncationFailureMessage(
     case 'write-sections':
       return `${providerDisplayName} 在“${stageName} / ${request.itemLabel}”阶段连续被截断（finish_reason=length，max_tokens 已自动提高到 ${maxOutputTokens}，模型：${model}）。这通常说明单章输出太长。建议减小 Chunk Size、把场景拆得更细，或改用更擅长长输出的模型。`;
     case 'polish-novel':
-      return `${providerDisplayName} 在“${stageName} / ${request.itemLabel}”阶段连续被截断（finish_reason=length，max_tokens 已自动提高到 ${maxOutputTokens}，模型：${model}）。这通常说明全书统稿输入或输出过长。建议关闭统稿、缩短单书长度，或改用更适合长文本统稿的模型。`;
+      return `${providerDisplayName} 在“${stageName} / ${request.itemLabel}”阶段连续被截断（finish_reason=length，max_tokens 已自动提高到 ${maxOutputTokens}，模型：${model}）。这通常说明全书润色输入或输出过长。建议关闭润色、缩短单书长度，或改用更适合长文本润色的模型。`;
     default:
       return `${providerDisplayName} 在“${request.itemLabel}”阶段连续被截断（finish_reason=length，max_tokens 已自动提高到 ${maxOutputTokens}，模型：${model}）。建议缩短单次输出目标后重试。`;
   }
@@ -1714,6 +1846,7 @@ export class TaskOrchestrator {
         runtimeStartedAt: normalizeRuntimeStartedAt(chunk.runtimeStartedAt),
         pageNumbers: [...chunk.pageNumbers],
         keyDevelopments: [...chunk.keyDevelopments],
+        dialogueResolutions: chunk.dialogueResolutions.map((resolution) => ({ ...resolution })),
       })),
       globalSynthesis: cloneGlobalSynthesis(this.state.globalSynthesis),
       writingPreparation: cloneWritingPreparation(this.state.writingPreparation),
@@ -1896,7 +2029,7 @@ export class TaskOrchestrator {
 
   private async requestChunkSynthesisResult(
     chunkIndex: number
-  ): Promise<Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'continuitySummary'>> {
+  ): Promise<Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'dialogueResolutions' | 'continuitySummary'>> {
     const chunkSynthesis = this.state.chunkSyntheses[chunkIndex];
     if (!chunkSynthesis) {
       throw new Error(`Chunk synthesis ${chunkIndex + 1} does not exist.`);
@@ -1933,7 +2066,7 @@ export class TaskOrchestrator {
           maxOutputTokens: SPLIT_DRAFT_CHUNK_MAX_TOKENS,
           timeoutMs: SPLIT_DRAFT_CHUNK_TIMEOUT_MS,
         },
-        parseChunkSynthesisResult
+        (rawText) => parseChunkSynthesisResult(rawText)
       );
     }
 
@@ -1976,7 +2109,7 @@ export class TaskOrchestrator {
         maxOutputTokens: SYNTHESIS_MAX_TOKENS,
         timeoutMs: CHUNK_SYNTHESIS_TIMEOUT_MS,
       },
-      parseChunkSynthesisResult
+      (rawText) => parseChunkSynthesisResult(rawText, relatedPages)
     );
 
     if (!shouldTryImageGrounding) {
@@ -2013,7 +2146,7 @@ export class TaskOrchestrator {
           timeoutMs: CHUNK_SYNTHESIS_TIMEOUT_MS,
           userPromptPlacement: 'after-media',
         },
-        parseChunkSynthesisResult
+        (rawText) => parseChunkSynthesisResult(rawText, relatedPages)
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -2027,7 +2160,7 @@ export class TaskOrchestrator {
 
   private applyChunkSynthesisResult(
     chunkIndex: number,
-    result: Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'continuitySummary'>
+    result: Pick<ChunkSynthesis, 'title' | 'summary' | 'draftText' | 'keyDevelopments' | 'dialogueResolutions' | 'continuitySummary'>
   ) {
     const chunkSynthesis = this.state.chunkSyntheses[chunkIndex];
     const chunkState = this.state.chunks[chunkIndex];
@@ -2041,6 +2174,7 @@ export class TaskOrchestrator {
     chunkSynthesis.summary = result.summary;
     chunkSynthesis.draftText = result.draftText || undefined;
     chunkSynthesis.keyDevelopments = result.keyDevelopments;
+    chunkSynthesis.dialogueResolutions = result.dialogueResolutions;
     chunkSynthesis.continuitySummary = result.continuitySummary;
     chunkSynthesis.status = 'success';
     chunkSynthesis.error = undefined;
@@ -2202,7 +2336,7 @@ export class TaskOrchestrator {
     segmentLabel?: string
   ): string {
     const suffix = segmentLabel?.trim() ? ` · ${segmentLabel.trim()}` : '';
-    return `全书统稿：润色第 ${section.index + 1} 节 ${section.title}${suffix}`;
+    return `全书润色：润色第 ${section.index + 1} 节 ${section.title}${suffix}`;
   }
 
   private shouldRetryFinalPolishWithSplit(
@@ -2317,7 +2451,7 @@ export class TaskOrchestrator {
     this.syncFinalPolishProgress(sourceSections);
 
     if (sourceSections.length === 0) {
-      this.applySkippedFinalPolish('没有可用于统稿的章节正文。');
+      this.applySkippedFinalPolish('没有可用于润色的章节正文。');
       return 'skipped';
     }
 
@@ -2334,7 +2468,7 @@ export class TaskOrchestrator {
         this.state.finalPolish,
         {
           stage: 'polish-novel',
-          itemLabel: '全书统稿：统一口吻指南',
+          itemLabel: '全书润色：统一口吻指南',
           chunkIndex: 0,
           imageNames: this.state.pageAnalyses.map((page) => page.imageName),
           images: [],
@@ -2451,7 +2585,7 @@ export class TaskOrchestrator {
         this.state.writingPreparation,
         {
           stage: 'write-sections',
-          itemLabel: '章节写作：写作前准备',
+          itemLabel: '章节写作：写作前全书统稿',
           chunkIndex: 0,
           imageNames: this.getAllImageNames(),
           images: [],
@@ -2736,6 +2870,11 @@ export class TaskOrchestrator {
         && (normalizedGlobalSynthesis.status === 'success' || normalizedGlobalSynthesis.status === 'skipped')
       ),
     };
+    state.pageAnalyses = (state.pageAnalyses || []).map((page) => ({
+      ...page,
+      runtimeMs: normalizeRuntimeMs(page.runtimeMs),
+      runtimeStartedAt: normalizeRuntimeStartedAt(page.runtimeStartedAt),
+    }));
     state.chunkSyntheses = (state.chunkSyntheses || []).map((chunk) => ({
       ...chunk,
       runtimeMs: normalizeRuntimeMs(chunk.runtimeMs),
@@ -2744,12 +2883,11 @@ export class TaskOrchestrator {
       summary: sanitizeNarrativeText(chunk.summary),
       draftText: chunk.draftText ? sanitizeNarrativeText(chunk.draftText) : undefined,
       keyDevelopments: (chunk.keyDevelopments || []).map((item) => sanitizeNarrativeText(item)).filter(Boolean),
+      dialogueResolutions: sanitizeChunkDialogueResolutions(
+        chunk.dialogueResolutions,
+        state.pageAnalyses.filter((page) => page.chunkIndex === chunk.index)
+      ),
       continuitySummary: sanitizeNarrativeText(chunk.continuitySummary),
-    }));
-    state.pageAnalyses = (state.pageAnalyses || []).map((page) => ({
-      ...page,
-      runtimeMs: normalizeRuntimeMs(page.runtimeMs),
-      runtimeStartedAt: normalizeRuntimeStartedAt(page.runtimeStartedAt),
     }));
     state.novelSections = (state.novelSections || []).map((section) => ({
       ...section,
@@ -3043,6 +3181,7 @@ export class TaskOrchestrator {
     chunkSynthesis.summary = fallback.summary;
     chunkSynthesis.draftText = fallback.draftText || undefined;
     chunkSynthesis.keyDevelopments = fallback.keyDevelopments;
+    chunkSynthesis.dialogueResolutions = fallback.dialogueResolutions;
     chunkSynthesis.continuitySummary = fallback.continuitySummary;
     chunkSynthesis.status = 'skipped';
     chunkSynthesis.error = errorMessage;
@@ -3121,6 +3260,7 @@ export class TaskOrchestrator {
       chunk.summary = undefined;
       chunk.draftText = undefined;
       chunk.keyDevelopments = [];
+      chunk.dialogueResolutions = [];
       chunk.continuitySummary = undefined;
       chunk.error = undefined;
       resetTrackedRuntime(chunk);
@@ -3141,6 +3281,7 @@ export class TaskOrchestrator {
       chunk.summary = undefined;
       chunk.draftText = undefined;
       chunk.keyDevelopments = [];
+      chunk.dialogueResolutions = [];
       chunk.continuitySummary = undefined;
       chunk.error = undefined;
       resetTrackedRuntime(chunk);
@@ -3322,6 +3463,7 @@ export class TaskOrchestrator {
         .filter((pageNumber): pageNumber is number => pageNumber > 0),
       status: 'pending',
       keyDevelopments: [],
+      dialogueResolutions: [],
       runtimeMs: 0,
       retryCount: 0,
     }));
@@ -3678,7 +3820,7 @@ export class TaskOrchestrator {
         storyOverview: result.storyOverview,
         worldGuide: result.worldGuide,
         characterGuide: result.characterGuide,
-        sceneOutline: optimizeGeneratedSceneOutline(result.sceneOutline),
+        sceneOutline: alignSceneOutlineToChunks(result.sceneOutline, this.state.chunkSyntheses),
         writingConstraints: result.writingConstraints,
         outlineConfirmed: this.isSplitDraftMode(),
         retryCount: 0,
@@ -4359,6 +4501,7 @@ export class TaskOrchestrator {
           chunkSynthesis.summary = fallback.summary;
           chunkSynthesis.draftText = fallback.draftText || undefined;
           chunkSynthesis.keyDevelopments = fallback.keyDevelopments;
+          chunkSynthesis.dialogueResolutions = fallback.dialogueResolutions;
           chunkSynthesis.continuitySummary = fallback.continuitySummary;
           chunkSynthesis.status = 'skipped';
           chunkSynthesis.retryCount = 0;
@@ -4616,7 +4759,7 @@ export class TaskOrchestrator {
         storyOverview: result.storyOverview,
         worldGuide: result.worldGuide,
         characterGuide: result.characterGuide,
-        sceneOutline: optimizeGeneratedSceneOutline(result.sceneOutline),
+        sceneOutline: alignSceneOutlineToChunks(result.sceneOutline, this.state.chunkSyntheses),
         writingConstraints: result.writingConstraints,
         outlineConfirmed: this.isSplitDraftMode(),
         retryCount: 0,

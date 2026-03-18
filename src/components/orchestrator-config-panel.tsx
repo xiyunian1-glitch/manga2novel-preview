@@ -53,7 +53,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
         <div className="space-y-2 rounded-lg border bg-muted/15 p-3">
           <div className="flex items-center justify-between gap-3">
             <div className="space-y-1">
-              <Label className="text-sm">全书统稿 / 润色</Label>
+              <Label className="text-sm">写作后全书润色</Label>
               <p className="text-xs text-muted-foreground">
                 正文全部完成后，再跑一遍全书统一润色，修顺称呼、衔接、节奏和整体文风。
               </p>

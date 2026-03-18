@@ -47,7 +47,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
             </CardTitle>
             <div className="flex flex-wrap gap-2">
               {hasFinalPolish ? (
-                <Badge variant="default">全书统稿版</Badge>
+                <Badge variant="default">全书润色版</Badge>
               ) : visibleSections.length > 0 ? (
                 <Badge variant="secondary">章节实时预览</Badge>
               ) : (
@@ -104,7 +104,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
             <div className="space-y-4 pr-4">
               <div className="flex items-center gap-2">
                 <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                  全书统稿版
+                  全书润色版
                 </span>
                 <Separator className="flex-1" />
               </div>

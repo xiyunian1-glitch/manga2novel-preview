@@ -16,7 +16,7 @@ export const REQUEST_STAGE_LABELS: Record<RequestStage, string> = {
   'synthesize-chunks': '分块综合',
   'synthesize-story': '整书综合',
   'write-sections': '章节写作',
-  'polish-novel': '全书统稿',
+  'polish-novel': '全书润色',
 };
 
 export type StageModelConfig = Record<RequestStage, string>;
@@ -119,6 +119,11 @@ export interface DialogueLine {
   speakerConfidence?: 'high' | 'medium' | 'low';
 }
 
+export interface DialogueResolution extends DialogueLine {
+  pageNumber: number;
+  lineIndex: number;
+}
+
 export interface PageAnalysis extends RuntimeInfo {
   index: number;
   pageNumber: number;
@@ -146,6 +151,7 @@ export interface ChunkSynthesis extends RuntimeInfo {
   summary?: string;
   draftText?: string;
   keyDevelopments: string[];
+  dialogueResolutions: DialogueResolution[];
   continuitySummary?: string;
   error?: string;
   retryCount: number;
