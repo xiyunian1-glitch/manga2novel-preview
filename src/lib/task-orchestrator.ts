@@ -884,6 +884,7 @@ function createSectionsFromSceneOutline(sceneOutline: ScenePlan[], chunkSynthese
     title: chunk.title || `第 ${chunk.index + 1} 节`,
     chunkIndexes: [chunk.index],
     status: 'pending' as ChunkStatus,
+    runtimeMs: 0,
     retryCount: 0,
   }));
 
@@ -896,6 +897,7 @@ function createSectionsFromSceneOutline(sceneOutline: ScenePlan[], chunkSynthese
     title: scene.title || `第 ${index + 1} 节`,
     chunkIndexes: scene.chunkIndexes.length > 0 ? scene.chunkIndexes : fallbackSections[index]?.chunkIndexes || [index],
     status: 'pending',
+    runtimeMs: 0,
     retryCount: 0,
   }));
 }
@@ -1032,7 +1034,10 @@ function isAbortError(error: unknown): boolean {
 
 function cloneGlobalSynthesis(value: StorySynthesis): StorySynthesis {
   return {
+    ...DEFAULT_STORY_SYNTHESIS,
     ...value,
+    runtimeMs: normalizeRuntimeMs(value.runtimeMs),
+    runtimeStartedAt: normalizeRuntimeStartedAt(value.runtimeStartedAt),
     storyOverview: sanitizeNarrativeText(value.storyOverview),
     worldGuide: sanitizeNarrativeText(value.worldGuide),
     characterGuide: sanitizeNarrativeText(value.characterGuide),
@@ -1050,6 +1055,8 @@ function cloneWritingPreparation(value: WritingPreparation): WritingPreparation 
   return {
     ...DEFAULT_WRITING_PREPARATION,
     ...value,
+    runtimeMs: normalizeRuntimeMs(value.runtimeMs),
+    runtimeStartedAt: normalizeRuntimeStartedAt(value.runtimeStartedAt),
     voiceGuide: sanitizeNarrativeText(value.voiceGuide),
   };
 }
@@ -1078,6 +1085,8 @@ function cloneFinalPolish(value: FinalPolish): FinalPolish {
   return {
     ...DEFAULT_FINAL_POLISH,
     ...value,
+    runtimeMs: normalizeRuntimeMs(value.runtimeMs),
+    runtimeStartedAt: normalizeRuntimeStartedAt(value.runtimeStartedAt),
     voiceGuide,
     markdownBody,
     polishedSectionBodies,
@@ -1094,6 +1103,47 @@ function normalizeRuntimeMs(value: unknown): number {
   }
 
   return Math.max(0, Math.trunc(numericValue));
+}
+
+type RuntimeTracked = {
+  runtimeMs: number;
+  runtimeStartedAt?: string;
+};
+
+function normalizeRuntimeStartedAt(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function getTrackedRuntimeMs(value: RuntimeTracked): number {
+  const baseRuntimeMs = normalizeRuntimeMs(value.runtimeMs);
+  const runtimeStartedAt = normalizeRuntimeStartedAt(value.runtimeStartedAt);
+  if (!runtimeStartedAt) {
+    return baseRuntimeMs;
+  }
+
+  const startedAtMs = Date.parse(runtimeStartedAt);
+  if (!Number.isFinite(startedAtMs)) {
+    return baseRuntimeMs;
+  }
+
+  return baseRuntimeMs + Math.max(0, Date.now() - startedAtMs);
+}
+
+function startTrackedRuntime(target: RuntimeTracked, reset = false) {
+  target.runtimeMs = reset ? 0 : normalizeRuntimeMs(target.runtimeMs);
+  if (!normalizeRuntimeStartedAt(target.runtimeStartedAt)) {
+    target.runtimeStartedAt = new Date().toISOString();
+  }
+}
+
+function stopTrackedRuntime(target: RuntimeTracked) {
+  target.runtimeMs = getTrackedRuntimeMs(target);
+  target.runtimeStartedAt = undefined;
+}
+
+function resetTrackedRuntime(target: RuntimeTracked) {
+  target.runtimeMs = 0;
+  target.runtimeStartedAt = undefined;
 }
 
 interface ModelRequest {
@@ -1542,6 +1592,8 @@ export class TaskOrchestrator {
       chunks: this.state.chunks.map((chunk) => ({ ...chunk, images: [...chunk.images] })),
       pageAnalyses: this.state.pageAnalyses.map((page) => ({
         ...page,
+        runtimeMs: getTrackedRuntimeMs(page),
+        runtimeStartedAt: normalizeRuntimeStartedAt(page.runtimeStartedAt),
         keyEvents: [...page.keyEvents],
         dialogue: page.dialogue.map((line) => ({ ...line })),
         narrationText: [...page.narrationText],
@@ -1555,6 +1607,8 @@ export class TaskOrchestrator {
       })),
       chunkSyntheses: this.state.chunkSyntheses.map((chunk) => ({
         ...chunk,
+        runtimeMs: getTrackedRuntimeMs(chunk),
+        runtimeStartedAt: normalizeRuntimeStartedAt(chunk.runtimeStartedAt),
         pageNumbers: [...chunk.pageNumbers],
         keyDevelopments: [...chunk.keyDevelopments],
       })),
@@ -1562,6 +1616,8 @@ export class TaskOrchestrator {
       writingPreparation: cloneWritingPreparation(this.state.writingPreparation),
       novelSections: this.state.novelSections.map((section) => ({
         ...section,
+        runtimeMs: getTrackedRuntimeMs(section),
+        runtimeStartedAt: normalizeRuntimeStartedAt(section.runtimeStartedAt),
         chunkIndexes: [...section.chunkIndexes],
       })),
       finalPolish: cloneFinalPolish(this.state.finalPolish),
@@ -1584,41 +1640,15 @@ export class TaskOrchestrator {
   }
 
   private getCurrentRuntimeMs(): number {
-    const baseRuntimeMs = normalizeRuntimeMs(this.state.runtimeMs);
-    if (!this.state.runtimeStartedAt) {
-      return baseRuntimeMs;
-    }
-
-    const startedAtMs = Date.parse(this.state.runtimeStartedAt);
-    if (!Number.isFinite(startedAtMs)) {
-      return baseRuntimeMs;
-    }
-
-    return baseRuntimeMs + Math.max(0, Date.now() - startedAtMs);
+    return getTrackedRuntimeMs(this.state);
   }
 
   private startRuntimeTracking(reset = false) {
-    if (reset) {
-      this.state.runtimeMs = 0;
-    }
-
-    if (!this.state.runtimeStartedAt) {
-      this.state.runtimeStartedAt = new Date().toISOString();
-    }
+    startTrackedRuntime(this.state, reset);
   }
 
   private stopRuntimeTracking(state: TaskState = this.state) {
-    state.runtimeMs = normalizeRuntimeMs(state.runtimeMs);
-    if (!state.runtimeStartedAt) {
-      return;
-    }
-
-    const startedAtMs = Date.parse(state.runtimeStartedAt);
-    if (Number.isFinite(startedAtMs)) {
-      state.runtimeMs += Math.max(0, Date.now() - startedAtMs);
-    }
-
-    state.runtimeStartedAt = undefined;
+    stopTrackedRuntime(state);
   }
 
   updateConfig(config: Partial<OrchestratorConfig>) {
@@ -1927,6 +1957,7 @@ export class TaskOrchestrator {
   private applySkippedFinalPolish(error?: string) {
     this.state.finalPolish = {
       ...cloneFinalPolish(DEFAULT_FINAL_POLISH),
+      runtimeMs: this.state.finalPolish.runtimeMs,
       status: 'skipped',
       error,
     };
@@ -2131,6 +2162,7 @@ export class TaskOrchestrator {
     this.state.finalPolish.status = 'processing';
     this.state.finalPolish.error = undefined;
     this.state.finalPolish.markdownBody = undefined;
+    startTrackedRuntime(this.state.finalPolish);
 
     if (!this.state.finalPolish.voiceGuide?.trim()) {
       this.state.finalPolish.phase = 'build-voice-guide';
@@ -2192,6 +2224,7 @@ export class TaskOrchestrator {
       .trim();
     this.state.finalPolish.status = 'success';
     this.state.finalPolish.error = undefined;
+    stopTrackedRuntime(this.state.finalPolish);
     this.refreshFullNovel();
     return 'success';
   }
@@ -2205,6 +2238,7 @@ export class TaskOrchestrator {
                 title: '完整正文',
                 chunkIndexes: this.state.chunkSyntheses.map((chunk) => chunk.index),
                 status: 'pending' as ChunkStatus,
+                runtimeMs: 0,
                 retryCount: 0,
               }]
             : []
@@ -2226,6 +2260,8 @@ export class TaskOrchestrator {
         markdownBody: existing.markdownBody,
         continuitySummary: existing.continuitySummary,
         error: existing.error,
+        runtimeMs: normalizeRuntimeMs(existing.runtimeMs),
+        runtimeStartedAt: normalizeRuntimeStartedAt(existing.runtimeStartedAt),
         retryCount: existing.retryCount,
       };
     });
@@ -2245,6 +2281,7 @@ export class TaskOrchestrator {
 
     this.state.writingPreparation.status = 'processing';
     this.state.writingPreparation.error = undefined;
+    startTrackedRuntime(this.state.writingPreparation);
     this.emit('chunk-start', 0);
 
     try {
@@ -2272,14 +2309,17 @@ export class TaskOrchestrator {
       this.state.writingPreparation.voiceGuide = result.voiceGuide.trim();
       this.state.writingPreparation.status = 'success';
       this.state.writingPreparation.error = undefined;
+      stopTrackedRuntime(this.state.writingPreparation);
       this.state.writingPreparation.retryCount = 0;
       this.emit('chunk-success', 0);
     } catch (error) {
       if (isAbortError(error)) {
+        stopTrackedRuntime(this.state.writingPreparation);
         throw error;
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error);
+      stopTrackedRuntime(this.state.writingPreparation);
       this.state.writingPreparation.status = 'error';
       this.state.writingPreparation.error = errorMessage;
 
@@ -2303,6 +2343,7 @@ export class TaskOrchestrator {
     this.state.writingPreparation = {
       ...cloneWritingPreparation(DEFAULT_WRITING_PREPARATION),
       ...fallback,
+      runtimeMs: this.state.writingPreparation.runtimeMs,
       status: 'skipped',
       error,
     };
@@ -2488,7 +2529,6 @@ export class TaskOrchestrator {
     this.abortController = null;
     this.isPaused = false;
     this.startRuntimeTracking();
-    this.startRuntimeTracking();
     this.state.status = 'running';
     this.state.currentStage = stage;
     this.state.currentChunkIndex = chunkIndex;
@@ -2518,29 +2558,41 @@ export class TaskOrchestrator {
     }
     state.config = { ...DEFAULT_ORCHESTRATOR_CONFIG, ...state.config };
     state.creativeSettings = { ...DEFAULT_CREATIVE_SETTINGS, ...state.creativeSettings };
+    const normalizedGlobalSynthesis = cloneGlobalSynthesis(
+      state.globalSynthesis || DEFAULT_STORY_SYNTHESIS
+    );
     state.globalSynthesis = {
       ...cloneGlobalSynthesis(DEFAULT_STORY_SYNTHESIS),
-      ...state.globalSynthesis,
+      ...normalizedGlobalSynthesis,
       sceneOutline: normalizeSceneOutlineInput(
-        state.globalSynthesis?.sceneOutline || [],
+        normalizedGlobalSynthesis.sceneOutline || [],
         state.chunkSyntheses.length
       ),
-      writingConstraints: [...(state.globalSynthesis?.writingConstraints || [])],
-      outlineConfirmed: Boolean(state.globalSynthesis?.outlineConfirmed) || (
+      writingConstraints: [...(normalizedGlobalSynthesis.writingConstraints || [])],
+      outlineConfirmed: Boolean(normalizedGlobalSynthesis.outlineConfirmed) || (
         state.config.workflowMode === 'split-draft'
-        && (state.globalSynthesis?.status === 'success' || state.globalSynthesis?.status === 'skipped')
+        && (normalizedGlobalSynthesis.status === 'success' || normalizedGlobalSynthesis.status === 'skipped')
       ),
     };
     state.chunkSyntheses = (state.chunkSyntheses || []).map((chunk) => ({
       ...chunk,
+      runtimeMs: normalizeRuntimeMs(chunk.runtimeMs),
+      runtimeStartedAt: normalizeRuntimeStartedAt(chunk.runtimeStartedAt),
       title: sanitizeNarrativeText(chunk.title),
       summary: sanitizeNarrativeText(chunk.summary),
       draftText: chunk.draftText ? sanitizeNarrativeText(chunk.draftText) : undefined,
       keyDevelopments: (chunk.keyDevelopments || []).map((item) => sanitizeNarrativeText(item)).filter(Boolean),
       continuitySummary: sanitizeNarrativeText(chunk.continuitySummary),
     }));
+    state.pageAnalyses = (state.pageAnalyses || []).map((page) => ({
+      ...page,
+      runtimeMs: normalizeRuntimeMs(page.runtimeMs),
+      runtimeStartedAt: normalizeRuntimeStartedAt(page.runtimeStartedAt),
+    }));
     state.novelSections = (state.novelSections || []).map((section) => ({
       ...section,
+      runtimeMs: normalizeRuntimeMs(section.runtimeMs),
+      runtimeStartedAt: normalizeRuntimeStartedAt(section.runtimeStartedAt),
       title: sanitizeNarrativeText(section.title),
       markdownBody: section.markdownBody ? sanitizeNarrativeText(section.markdownBody) : undefined,
       continuitySummary: section.continuitySummary ? sanitizeNarrativeText(section.continuitySummary) : undefined,
@@ -2617,6 +2669,7 @@ export class TaskOrchestrator {
     state.pageAnalyses.forEach((pageAnalysis) => {
       if (pageAnalysis.status === 'processing') {
         pageAnalysis.status = 'pending';
+        stopTrackedRuntime(pageAnalysis);
       }
     });
 
@@ -2624,6 +2677,7 @@ export class TaskOrchestrator {
       if (chunkSynthesis.status === 'processing') {
         chunkSynthesis.status = 'pending';
         chunkSynthesis.error = undefined;
+        stopTrackedRuntime(chunkSynthesis);
         if (state.chunks[index]) {
           state.chunks[index].status = 'pending';
           state.chunks[index].error = undefined;
@@ -2634,23 +2688,27 @@ export class TaskOrchestrator {
     if (state.globalSynthesis.status === 'processing') {
       state.globalSynthesis.status = 'pending';
       state.globalSynthesis.error = undefined;
+      stopTrackedRuntime(state.globalSynthesis);
     }
 
     if (state.writingPreparation.status === 'processing') {
       state.writingPreparation.status = 'pending';
       state.writingPreparation.error = undefined;
+      stopTrackedRuntime(state.writingPreparation);
     }
 
     state.novelSections.forEach((section) => {
       if (section.status === 'processing') {
         section.status = 'pending';
         section.error = undefined;
+        stopTrackedRuntime(section);
       }
     });
 
     if (state.finalPolish.status === 'processing') {
       state.finalPolish.status = 'pending';
       state.finalPolish.error = undefined;
+      stopTrackedRuntime(state.finalPolish);
     }
   }
 
@@ -2695,6 +2753,7 @@ export class TaskOrchestrator {
     this.state.pageAnalyses.forEach((pageAnalysis) => {
       if (pageAnalysis.status === 'processing') {
         pageAnalysis.status = 'pending';
+        stopTrackedRuntime(pageAnalysis);
       }
     });
   }
@@ -2876,6 +2935,7 @@ export class TaskOrchestrator {
     page.visualText = [];
     page.characters = [];
     page.error = undefined;
+    resetTrackedRuntime(page);
     page.retryCount = 0;
   }
 
@@ -2901,6 +2961,7 @@ export class TaskOrchestrator {
       chunk.keyDevelopments = [];
       chunk.continuitySummary = undefined;
       chunk.error = undefined;
+      resetTrackedRuntime(chunk);
       chunk.retryCount = 0;
       this.state.chunks[index].status = 'pending';
       this.state.chunks[index].novelText = undefined;
@@ -2920,6 +2981,7 @@ export class TaskOrchestrator {
       chunk.keyDevelopments = [];
       chunk.continuitySummary = undefined;
       chunk.error = undefined;
+      resetTrackedRuntime(chunk);
       chunk.retryCount = 0;
       this.state.chunks[index].status = 'pending';
       this.state.chunks[index].novelText = undefined;
@@ -2933,6 +2995,7 @@ export class TaskOrchestrator {
   private markWritingPreparationPending() {
     this.state.writingPreparation.status = 'pending';
     this.state.writingPreparation.error = undefined;
+    resetTrackedRuntime(this.state.writingPreparation);
     this.state.writingPreparation.retryCount = 0;
   }
 
@@ -2946,6 +3009,7 @@ export class TaskOrchestrator {
       const section = this.state.novelSections[index];
       section.status = 'pending';
       section.error = undefined;
+      resetTrackedRuntime(section);
       section.retryCount = 0;
     }
 
@@ -2965,6 +3029,7 @@ export class TaskOrchestrator {
   private markGlobalSynthesisPending() {
     this.state.globalSynthesis.status = 'pending';
     this.state.globalSynthesis.error = undefined;
+    resetTrackedRuntime(this.state.globalSynthesis);
     this.state.globalSynthesis.retryCount = 0;
     this.state.globalSynthesis.outlineConfirmed = false;
     this.markWritingPreparationPending();
@@ -2976,6 +3041,7 @@ export class TaskOrchestrator {
       const chunk = this.state.chunkSyntheses[index];
       chunk.status = 'pending';
       chunk.error = undefined;
+      resetTrackedRuntime(chunk);
       chunk.retryCount = 0;
       this.state.chunks[index].status = 'pending';
       this.state.chunks[index].error = undefined;
@@ -2991,6 +3057,7 @@ export class TaskOrchestrator {
       section.markdownBody = undefined;
       section.continuitySummary = undefined;
       section.error = undefined;
+      resetTrackedRuntime(section);
       section.retryCount = 0;
     }
 
@@ -3082,6 +3149,7 @@ export class TaskOrchestrator {
           narrationText: [],
           visualText: [],
           characters: [],
+          runtimeMs: 0,
           retryCount: 0,
         }));
 
@@ -3092,6 +3160,7 @@ export class TaskOrchestrator {
         .filter((pageNumber): pageNumber is number => pageNumber > 0),
       status: 'pending',
       keyDevelopments: [],
+      runtimeMs: 0,
       retryCount: 0,
     }));
 
@@ -3243,11 +3312,13 @@ export class TaskOrchestrator {
         batchPages.forEach((pageAnalysis) => {
           pageAnalysis.status = 'processing';
           pageAnalysis.error = undefined;
+          startTrackedRuntime(pageAnalysis);
         });
         this.emit('chunk-start', batchIndex);
 
         try {
           await this.analyzePageBatch(batchIndex, batchPages, readyImages);
+          batchPages.forEach((pageAnalysis) => stopTrackedRuntime(pageAnalysis));
           this.emit('chunk-success', batchIndex);
         } catch (error) {
           if (isAbortError(error)) {
@@ -3255,6 +3326,11 @@ export class TaskOrchestrator {
           }
 
           const errorMessage = error instanceof Error ? error.message : String(error);
+          batchPages.forEach((pageAnalysis) => {
+            if (pageAnalysis.runtimeStartedAt) {
+              stopTrackedRuntime(pageAnalysis);
+            }
+          });
           batchPages.forEach((pageAnalysis) => {
             if (pageAnalysis.status === 'processing' || pageAnalysis.status === 'pending') {
               pageAnalysis.status = 'error';
@@ -3322,6 +3398,7 @@ export class TaskOrchestrator {
       chunkSynthesis.status = 'processing';
       chunkSynthesis.draftText = undefined;
       chunkSynthesis.error = undefined;
+      startTrackedRuntime(chunkSynthesis);
       this.state.chunks[index].status = 'processing';
       this.state.chunks[index].novelText = undefined;
       this.emit('chunk-start', index);
@@ -3329,9 +3406,11 @@ export class TaskOrchestrator {
       try {
         const result = await this.requestChunkSynthesisResult(index);
         this.applyChunkSynthesisResult(index, result);
+        stopTrackedRuntime(chunkSynthesis);
         this.emit('chunk-success', index);
       } catch (error) {
         if (isAbortError(error)) {
+          stopTrackedRuntime(chunkSynthesis);
           this.stopRuntimeTracking();
           this.state.status = 'paused';
           this.state.currentChunkIndex = index;
@@ -3340,6 +3419,7 @@ export class TaskOrchestrator {
         }
 
         const errorMessage = error instanceof Error ? error.message : String(error);
+        stopTrackedRuntime(chunkSynthesis);
         chunkSynthesis.status = 'error';
         chunkSynthesis.error = errorMessage;
         chunkSynthesis.draftText = undefined;
@@ -3385,6 +3465,7 @@ export class TaskOrchestrator {
     this.state.currentChunkIndex = 0;
     this.state.globalSynthesis.status = 'processing';
     this.state.globalSynthesis.error = undefined;
+    startTrackedRuntime(this.state.globalSynthesis);
     this.emit('chunk-start', 0);
 
     try {
@@ -3420,6 +3501,7 @@ export class TaskOrchestrator {
         retryCount: 0,
         error: undefined,
       };
+      stopTrackedRuntime(this.state.globalSynthesis);
       this.state.memory.globalSummary = result.storyOverview || this.state.memory.globalSummary;
       this.initializeSectionsFromGlobalSynthesis();
       this.markSectionsPendingFrom(0);
@@ -3435,6 +3517,7 @@ export class TaskOrchestrator {
       return false;
     } catch (error) {
       if (isAbortError(error)) {
+        stopTrackedRuntime(this.state.globalSynthesis);
         this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.emit('paused');
@@ -3442,6 +3525,7 @@ export class TaskOrchestrator {
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error);
+      stopTrackedRuntime(this.state.globalSynthesis);
       this.state.globalSynthesis.status = 'error';
       this.state.globalSynthesis.error = errorMessage;
       if (this.shouldAutoSkipOnError()) {
@@ -3519,6 +3603,7 @@ export class TaskOrchestrator {
       this.state.currentChunkIndex = index;
       section.status = 'processing';
       section.error = undefined;
+      startTrackedRuntime(section);
       this.emit('chunk-start', index);
 
       try {
@@ -3570,12 +3655,14 @@ export class TaskOrchestrator {
         section.markdownBody = result.novelText;
         section.continuitySummary = result.continuitySummary;
         section.status = 'success';
+        stopTrackedRuntime(section);
         this.state.memory.previousEnding = result.continuitySummary || this.state.memory.previousEnding;
         this.state.memory.completedChunks.push(index);
         this.refreshFullNovel();
         this.emit('chunk-success', index);
       } catch (error) {
         if (isAbortError(error)) {
+          stopTrackedRuntime(section);
           this.stopRuntimeTracking();
           this.state.status = 'paused';
           this.state.currentChunkIndex = index;
@@ -3584,6 +3671,7 @@ export class TaskOrchestrator {
         }
 
         const errorMessage = error instanceof Error ? error.message : String(error);
+        stopTrackedRuntime(section);
         section.status = 'error';
         section.error = errorMessage;
         if (this.shouldAutoSkipOnError()) {
@@ -3625,6 +3713,7 @@ export class TaskOrchestrator {
       return true;
     } catch (error) {
       if (isAbortError(error)) {
+        stopTrackedRuntime(this.state.finalPolish);
         this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentChunkIndex = 0;
@@ -3633,6 +3722,7 @@ export class TaskOrchestrator {
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error);
+      stopTrackedRuntime(this.state.finalPolish);
       this.state.finalPolish.status = 'error';
       this.state.finalPolish.error = errorMessage;
       if (this.shouldAutoSkipOnError()) {
@@ -4153,6 +4243,7 @@ export class TaskOrchestrator {
         const chunkSynthesis = this.state.chunkSyntheses[this.state.currentChunkIndex];
         if (chunkSynthesis) {
           chunkSynthesis.status = 'pending';
+          resetTrackedRuntime(chunkSynthesis);
           chunkSynthesis.retryCount = 0;
           chunkSynthesis.error = undefined;
           this.state.chunks[this.state.currentChunkIndex].status = 'pending';
@@ -4162,6 +4253,7 @@ export class TaskOrchestrator {
       }
       case 'synthesize-story': {
         this.state.globalSynthesis.status = 'pending';
+        resetTrackedRuntime(this.state.globalSynthesis);
         this.state.globalSynthesis.retryCount = 0;
         this.state.globalSynthesis.error = undefined;
         this.state.globalSynthesis.outlineConfirmed = false;
@@ -4179,6 +4271,7 @@ export class TaskOrchestrator {
         const section = this.state.novelSections[this.state.currentChunkIndex];
         if (section) {
           section.status = 'pending';
+          resetTrackedRuntime(section);
           section.retryCount = 0;
           section.error = undefined;
         }
@@ -4214,20 +4307,24 @@ export class TaskOrchestrator {
 
     targetPage.status = 'processing';
     targetPage.error = undefined;
+    startTrackedRuntime(targetPage);
     this.emit('chunk-start', batchIndex);
 
     try {
       await this.analyzePageBatch(batchIndex, [targetPage], readyImages);
+      stopTrackedRuntime(targetPage);
       this.emit('chunk-success', batchIndex);
       this.pauseAfterSingleItemReplay('analyze-pages', this.getResumePageAnalysisBatchIndex(batchIndex));
       return targetPage.pageNumber;
     } catch (error) {
       if (isAbortError(error)) {
+        stopTrackedRuntime(targetPage);
         this.pauseAfterSingleItemReplay('analyze-pages', batchIndex);
         throw error;
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error);
+      stopTrackedRuntime(targetPage);
       targetPage.status = 'error';
       targetPage.error = errorMessage;
       this.emit('chunk-error', batchIndex, errorMessage);
@@ -4250,6 +4347,7 @@ export class TaskOrchestrator {
     chunkSynthesis.status = 'processing';
     chunkSynthesis.draftText = undefined;
     chunkSynthesis.error = undefined;
+    startTrackedRuntime(chunkSynthesis);
     this.state.chunks[chunkIndex].status = 'processing';
     this.state.chunks[chunkIndex].novelText = undefined;
     this.state.chunks[chunkIndex].error = undefined;
@@ -4258,16 +4356,19 @@ export class TaskOrchestrator {
     try {
       const result = await this.requestChunkSynthesisResult(chunkIndex);
       this.applyChunkSynthesisResult(chunkIndex, result);
+      stopTrackedRuntime(chunkSynthesis);
       this.emit('chunk-success', chunkIndex);
       this.pauseAfterSingleItemReplay('synthesize-chunks', this.getResumeChunkSynthesisIndex(chunkIndex));
       return chunkSynthesis.index + 1;
     } catch (error) {
       if (isAbortError(error)) {
+        stopTrackedRuntime(chunkSynthesis);
         this.pauseAfterSingleItemReplay('synthesize-chunks', chunkIndex);
         throw error;
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error);
+      stopTrackedRuntime(chunkSynthesis);
       chunkSynthesis.status = 'error';
       chunkSynthesis.error = errorMessage;
       chunkSynthesis.draftText = undefined;
@@ -4285,12 +4386,14 @@ export class TaskOrchestrator {
 
     this.state.globalSynthesis.status = 'pending';
     this.state.globalSynthesis.error = undefined;
+    resetTrackedRuntime(this.state.globalSynthesis);
     this.state.globalSynthesis.retryCount = 0;
     this.state.globalSynthesis.outlineConfirmed = false;
     this.beginSingleItemReplay('synthesize-story', 0);
 
     this.state.globalSynthesis.status = 'processing';
     this.state.globalSynthesis.error = undefined;
+    startTrackedRuntime(this.state.globalSynthesis);
     this.emit('chunk-start', 0);
 
     try {
@@ -4326,6 +4429,7 @@ export class TaskOrchestrator {
         retryCount: 0,
         error: undefined,
       };
+      stopTrackedRuntime(this.state.globalSynthesis);
       this.state.memory.globalSummary = result.storyOverview || this.state.memory.globalSummary;
       this.initializeSectionsFromGlobalSynthesis();
       this.markSectionsPendingFrom(0);
@@ -4334,11 +4438,13 @@ export class TaskOrchestrator {
       return;
     } catch (error) {
       if (isAbortError(error)) {
+        stopTrackedRuntime(this.state.globalSynthesis);
         this.pauseAfterSingleItemReplay('synthesize-story', 0);
         throw error;
       }
 
       const errorMessage = error instanceof Error ? error.message : String(error);
+      stopTrackedRuntime(this.state.globalSynthesis);
       this.state.globalSynthesis.status = 'error';
       this.state.globalSynthesis.error = errorMessage;
       this.emit('chunk-error', 0, errorMessage);
@@ -4375,6 +4481,7 @@ export class TaskOrchestrator {
 
       section.status = 'processing';
       section.error = undefined;
+      startTrackedRuntime(section);
       this.emit('chunk-start', sectionIndex);
 
       const sectionImageNames = this.isSplitDraftMode()
@@ -4425,6 +4532,7 @@ export class TaskOrchestrator {
       section.markdownBody = result.novelText;
       section.continuitySummary = result.continuitySummary;
       section.status = 'success';
+      stopTrackedRuntime(section);
       this.state.memory.previousEnding = result.continuitySummary || this.state.memory.previousEnding;
       this.state.memory.completedChunks.push(sectionIndex);
       this.refreshFullNovel();
@@ -4433,6 +4541,7 @@ export class TaskOrchestrator {
       return section.index + 1;
     } catch (error) {
       if (isAbortError(error)) {
+        stopTrackedRuntime(section);
         this.pauseAfterSingleItemReplay('write-sections', sectionIndex);
         throw error;
       }
@@ -4444,11 +4553,13 @@ export class TaskOrchestrator {
       ) {
         section.status = 'pending';
         section.error = undefined;
+        stopTrackedRuntime(section);
         this.emit('chunk-error', sectionIndex, errorMessage);
         this.pauseAfterSingleItemReplay('write-sections', sectionIndex);
         throw error;
       }
 
+      stopTrackedRuntime(section);
       section.status = 'error';
       section.error = errorMessage;
       this.emit('chunk-error', sectionIndex, errorMessage);

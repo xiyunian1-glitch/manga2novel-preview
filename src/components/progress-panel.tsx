@@ -47,6 +47,8 @@ type ProgressItem = {
   label: string;
   meta: string;
   status: ChunkStatus;
+  runtimeMs: number;
+  runtimeStartedAt?: string;
   preview: string;
   detail: string;
   error?: string;
@@ -75,10 +77,6 @@ function statusLabel(status: ChunkStatus): string {
   }
 }
 
-function isTaskActivelyRunning(taskState: TaskState): boolean {
-  return taskState.status === 'running' || taskState.status === 'preparing';
-}
-
 function formatRuntime(runtimeMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(runtimeMs / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -90,6 +88,33 @@ function formatRuntime(runtimeMs: number): string {
   }
 
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function getLiveRuntimeMs(runtimeMs: number, runtimeStartedAt: string | undefined, nowMs: number): number {
+  const startedAtMs = runtimeStartedAt ? Date.parse(runtimeStartedAt) : Number.NaN;
+  return runtimeMs + (
+    Number.isFinite(startedAtMs)
+      ? Math.max(0, nowMs - startedAtMs)
+      : 0
+  );
+}
+
+function hasAnyItemRuntimeInProgress(taskState: TaskState): boolean {
+  return taskState.pageAnalyses.some((page) => Boolean(page.runtimeStartedAt))
+    || taskState.chunkSyntheses.some((chunk) => Boolean(chunk.runtimeStartedAt))
+    || Boolean(taskState.globalSynthesis.runtimeStartedAt)
+    || Boolean(taskState.writingPreparation.runtimeStartedAt)
+    || taskState.novelSections.some((section) => Boolean(section.runtimeStartedAt))
+    || Boolean(taskState.finalPolish.runtimeStartedAt);
+}
+
+function formatItemRuntimeLabel(item: ProgressItem, nowMs: number): string | null {
+  const runtimeMs = getLiveRuntimeMs(item.runtimeMs, item.runtimeStartedAt, nowMs);
+  if (runtimeMs <= 0) {
+    return null;
+  }
+
+  return `${item.status === 'processing' ? '运行时间' : '用时'} ${formatRuntime(runtimeMs)}`;
 }
 
 function StatusIcon({ status }: { status: ChunkStatus }) {
@@ -199,6 +224,8 @@ function buildPageItem(taskState: TaskState): ProgressItem[] {
     label: `第 ${page.pageNumber} 页`,
     meta: [page.location, page.timeHint].filter(Boolean).join(' / ') || '等待提取场景信息',
     status: page.status,
+    runtimeMs: page.runtimeMs,
+    runtimeStartedAt: page.runtimeStartedAt,
     error: page.error,
     preview: [
       `摘要：${page.summary || '暂无'}`,
@@ -228,6 +255,8 @@ function buildChunkItems(taskState: TaskState): ProgressItem[] {
       label,
       meta: `${formatPageRange(chunk.pageNumbers)} · ${chunk.pageNumbers.length} 页`,
       status: chunk.status,
+      runtimeMs: chunk.runtimeMs,
+      runtimeStartedAt: chunk.runtimeStartedAt,
       error: chunk.error,
       preview: buildChunkPreview(chunk, isSplitDraftMode(taskState)),
       detail: [
@@ -250,6 +279,8 @@ function buildStoryItem(taskState: TaskState): ProgressItem[] {
     label: '整书综合',
     meta: `${taskState.chunkSyntheses.length} 个分段 / ${taskState.globalSynthesis.sceneOutline.length} 个场景`,
     status: taskState.globalSynthesis.status,
+    runtimeMs: taskState.globalSynthesis.runtimeMs,
+    runtimeStartedAt: taskState.globalSynthesis.runtimeStartedAt,
     error: taskState.globalSynthesis.error,
     preview: [
       `故事概览：${extractPreview(taskState.globalSynthesis.storyOverview, 220)}`,
@@ -280,6 +311,8 @@ function buildSectionItems(taskState: TaskState): ProgressItem[] {
     label: '写作前准备',
     meta: taskState.writingPreparation.voiceGuide?.trim() ? '已生成统一写作指引' : '等待生成写作指引',
     status: taskState.writingPreparation.status,
+    runtimeMs: taskState.writingPreparation.runtimeMs,
+    runtimeStartedAt: taskState.writingPreparation.runtimeStartedAt,
     error: taskState.writingPreparation.error,
     preview: extractPreview(taskState.writingPreparation.voiceGuide, 240),
     detail: taskState.writingPreparation.voiceGuide || '暂无写作指引',
@@ -294,6 +327,8 @@ function buildSectionItems(taskState: TaskState): ProgressItem[] {
       ? `${section.chunkIndexes.length} 个分段合成`
       : `关联 ${section.chunkIndexes.length} 个分块`,
     status: section.status,
+    runtimeMs: section.runtimeMs,
+    runtimeStartedAt: section.runtimeStartedAt,
     error: section.error,
     preview: [
       `正文：${extractPreview(section.markdownBody, 220)}`,
@@ -318,6 +353,8 @@ function buildPolishItem(taskState: TaskState): ProgressItem[] {
     label: '全书统稿',
     meta: body.trim() ? '已生成统稿结果' : '等待全书统稿',
     status: taskState.finalPolish.status,
+    runtimeMs: taskState.finalPolish.runtimeMs,
+    runtimeStartedAt: taskState.finalPolish.runtimeStartedAt,
     error: taskState.finalPolish.error,
     preview: extractPreview(body, 280),
     detail: [
@@ -419,7 +456,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   }, [selectedStage, taskState]);
 
   useEffect(() => {
-    if (taskState.status !== 'running' && taskState.status !== 'preparing') {
+    if (!hasAnyItemRuntimeInProgress(taskState)) {
       return;
     }
 
@@ -429,20 +466,20 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
     }, 1000);
 
     return () => window.clearInterval(timerId);
-  }, [taskState.status, taskState.runtimeStartedAt]);
+  }, [taskState]);
 
   const stageCards = useMemo(() => buildStageCards(taskState), [taskState]);
   const displayStage = selectedStage || getDisplayStage(taskState);
+  const activeStageItems = useMemo(() => (
+    taskState.currentStage === 'idle' ? [] : buildStageItems(taskState, taskState.currentStage)
+  ), [taskState]);
   const items = useMemo(() => buildStageItems(taskState, displayStage), [displayStage, taskState]);
   const useCompactChunkCards = isSplitDraftMode(taskState) && displayStage === 'synthesize-chunks';
   const useDenseListLayout = useCompactChunkCards || items.length > 1;
-  const runtimeStartedAtMs = taskState.runtimeStartedAt ? Date.parse(taskState.runtimeStartedAt) : Number.NaN;
-  const runtimeMs = taskState.runtimeMs + (
-    isTaskActivelyRunning(taskState) && Number.isFinite(runtimeStartedAtMs)
-      ? Math.max(0, nowMs - runtimeStartedAtMs)
-      : 0
-  );
-  const runtimeLabel = formatRuntime(runtimeMs);
+  const activeRuntimeItem = activeStageItems.find((item) => item.status === 'processing') || null;
+  const activeRuntimeLabel = activeRuntimeItem
+    ? formatRuntime(getLiveRuntimeMs(activeRuntimeItem.runtimeMs, activeRuntimeItem.runtimeStartedAt, nowMs))
+    : null;
 
   const includePageStage = !isSplitDraftMode(taskState);
   const totalUnits = (includePageStage ? taskState.pageAnalyses.length : 0)
@@ -498,7 +535,9 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground sm:text-sm">
             <span>{Math.round(progress)}%</span>
-            <span>运行时间 {runtimeLabel}</span>
+            <span className="max-w-[15rem] truncate text-center sm:max-w-[20rem]" title={activeRuntimeItem ? `当前项：${activeRuntimeItem.label}` : '当前没有正在处理的条目'}>
+              {activeRuntimeItem ? `当前项：${activeRuntimeItem.label} · ${activeRuntimeLabel}` : '当前项用时 --'}
+            </span>
             <span>{completedUnits} / {totalUnits || 0}</span>
           </div>
           <Progress value={progress} />
@@ -568,6 +607,11 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                         <Badge variant="outline">{statusLabel(item.status)}</Badge>
                       </div>
                       <div className="text-[11px] leading-4 text-muted-foreground">{item.meta}</div>
+                      {formatItemRuntimeLabel(item, nowMs) ? (
+                        <div className="text-[11px] leading-4 text-muted-foreground">
+                          {formatItemRuntimeLabel(item, nowMs)}
+                        </div>
+                      ) : null}
                       <div
                         className={useDenseListLayout
                           ? 'max-h-11 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground'

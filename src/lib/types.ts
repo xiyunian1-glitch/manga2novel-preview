@@ -88,6 +88,11 @@ export type PipelineStage =
   | 'write-sections'
   | 'polish-novel';
 
+export interface RuntimeInfo {
+  runtimeMs: number;
+  runtimeStartedAt?: string;
+}
+
 export interface ImageChunk {
   index: number;
   images: ImageItem[];
@@ -114,7 +119,7 @@ export interface DialogueLine {
   speakerConfidence?: 'high' | 'medium' | 'low';
 }
 
-export interface PageAnalysis {
+export interface PageAnalysis extends RuntimeInfo {
   index: number;
   pageNumber: number;
   chunkIndex: number;
@@ -133,7 +138,7 @@ export interface PageAnalysis {
   retryCount: number;
 }
 
-export interface ChunkSynthesis {
+export interface ChunkSynthesis extends RuntimeInfo {
   index: number;
   pageNumbers: number[];
   status: ChunkStatus;
@@ -153,7 +158,7 @@ export interface ScenePlan {
   chunkIndexes: number[];
 }
 
-export interface StorySynthesis {
+export interface StorySynthesis extends RuntimeInfo {
   status: ChunkStatus;
   storyOverview: string;
   worldGuide: string;
@@ -165,7 +170,7 @@ export interface StorySynthesis {
   retryCount: number;
 }
 
-export interface WritingPreparation {
+export interface WritingPreparation extends RuntimeInfo {
   status: ChunkStatus;
   voiceGuide: string;
   error?: string;
@@ -174,7 +179,7 @@ export interface WritingPreparation {
 
 export type FinalPolishPhase = 'idle' | 'build-voice-guide' | 'polish-sections' | 'complete';
 
-export interface FinalPolish {
+export interface FinalPolish extends RuntimeInfo {
   status: ChunkStatus;
   markdownBody?: string;
   voiceGuide?: string;
@@ -186,7 +191,7 @@ export interface FinalPolish {
   retryCount: number;
 }
 
-export interface NovelSection {
+export interface NovelSection extends RuntimeInfo {
   index: number;
   title: string;
   chunkIndexes: number[];
@@ -411,12 +416,14 @@ export const DEFAULT_STORY_SYNTHESIS: StorySynthesis = {
   sceneOutline: [],
   writingConstraints: [],
   outlineConfirmed: false,
+  runtimeMs: 0,
   retryCount: 0,
 };
 
 export const DEFAULT_WRITING_PREPARATION: WritingPreparation = {
   status: 'pending',
   voiceGuide: '',
+  runtimeMs: 0,
   retryCount: 0,
 };
 
@@ -426,6 +433,7 @@ export const DEFAULT_FINAL_POLISH: FinalPolish = {
   currentSectionIndex: 0,
   totalSections: 0,
   phase: 'idle',
+  runtimeMs: 0,
   retryCount: 0,
 };
 
