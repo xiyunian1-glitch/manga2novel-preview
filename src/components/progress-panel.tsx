@@ -229,12 +229,7 @@ function buildChunkItems(taskState: TaskState): ProgressItem[] {
       meta: `${formatPageRange(chunk.pageNumbers)} · ${chunk.pageNumbers.length} 页`,
       status: chunk.status,
       error: chunk.error,
-      preview: [
-        `摘要：${chunk.summary || '暂无'}`,
-        chunk.draftText ? `草稿片段：${extractPreview(chunk.draftText, 140)}` : '',
-        `推进：${joinValues(chunk.keyDevelopments)}`,
-        `承接：${chunk.continuitySummary || '暂无'}`,
-      ].filter(Boolean).join('\n'),
+      preview: buildChunkPreview(chunk, isSplitDraftMode(taskState)),
       detail: [
         `范围：${formatPageRange(chunk.pageNumbers)}`,
         `摘要：${chunk.summary || '暂无'}`,
@@ -424,7 +419,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   }, [selectedStage, taskState]);
 
   useEffect(() => {
-    if (!isTaskActivelyRunning(taskState)) {
+    if (taskState.status !== 'running' && taskState.status !== 'preparing') {
       return;
     }
 
@@ -440,6 +435,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   const displayStage = selectedStage || getDisplayStage(taskState);
   const items = useMemo(() => buildStageItems(taskState, displayStage), [displayStage, taskState]);
   const useCompactChunkCards = isSplitDraftMode(taskState) && displayStage === 'synthesize-chunks';
+  const useDenseListLayout = useCompactChunkCards || items.length > 1;
   const runtimeStartedAtMs = taskState.runtimeStartedAt ? Date.parse(taskState.runtimeStartedAt) : Number.NaN;
   const runtimeMs = taskState.runtimeMs + (
     isTaskActivelyRunning(taskState) && Number.isFinite(runtimeStartedAtMs)
@@ -492,30 +488,30 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
 
   return (
     <Card>
-      <CardHeader className="space-y-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <CardHeader className="space-y-2.5 pb-4">
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">处理进度</CardTitle>
           <Badge variant={taskState.status === 'completed' ? 'default' : 'outline'}>
             {taskState.status === 'completed' ? '全部完成' : stageLabel(taskState.currentStage, taskState)}
           </Badge>
         </div>
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground sm:text-sm">
             <span>{Math.round(progress)}%</span>
-            <span>杩愯鏃堕棿 {runtimeLabel}</span>
+            <span>运行时间 {runtimeLabel}</span>
             <span>{completedUnits} / {totalUnits || 0}</span>
           </div>
           <Progress value={progress} />
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3">
         {currentErrorItem ? (
-          <div className="rounded-xl border border-red-200 bg-red-50/70 p-3 text-sm">
+          <div className="rounded-lg border border-red-200 bg-red-50/70 p-2.5 text-sm">
             <div className="font-medium text-red-700">{currentErrorItem.label}</div>
-            <div className="mt-2 whitespace-pre-wrap text-red-700">{currentErrorItem.error}</div>
+            <div className="mt-1.5 whitespace-pre-wrap text-red-700">{currentErrorItem.error}</div>
             {currentErrorAdvice ? (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-amber-900">
                 <div className="font-medium">{currentErrorAdvice.title}</div>
                 <div className="mt-1 text-sm">{currentErrorAdvice.summary}</div>
               </div>
@@ -523,12 +519,12 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
           </div>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+        <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-4">
           {stageCards.map((card) => (
             <button
               key={card.stage}
               type="button"
-              className={`rounded-xl border p-3 text-left transition ${
+              className={`rounded-lg border p-2.5 text-left transition ${
                 displayStage === card.stage
                   ? 'border-primary bg-primary/5'
                   : 'border-border bg-background hover:bg-muted/30'
@@ -536,46 +532,46 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
               onClick={() => setSelectedStage(card.stage)}
             >
               <div className="text-sm font-medium">{card.title}</div>
-              <div className="mt-1 text-lg font-semibold">{card.value}</div>
+              <div className="mt-0.5 text-base font-semibold">{card.value}</div>
               {card.secondary ? (
-                <div className="mt-1 text-xs text-muted-foreground">{card.secondary}</div>
+                <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{card.secondary}</div>
               ) : null}
-              <div className="mt-2 text-xs text-muted-foreground">{card.hint}</div>
+              <div className="mt-1.5 text-[11px] leading-4 text-muted-foreground">{card.hint}</div>
             </button>
           ))}
         </div>
 
-        <div className="overflow-hidden rounded-xl border">
-          <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="overflow-hidden rounded-lg border">
+          <div className="flex items-center justify-between border-b px-3 py-2">
             <div>
               <div className="text-sm font-medium">{stageLabel(displayStage, taskState)}</div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-[11px] leading-4 text-muted-foreground">
                 {isSplitDraftMode(taskState) && displayStage === 'synthesize-chunks'
                   ? '均分后的各部分会分别在这里展示'
                   : '点击条目可查看详情'}
               </div>
             </div>
           </div>
-          <div className="max-h-[min(520px,calc(100vh-18rem))] overflow-y-auto overscroll-contain">
-            <div className={useCompactChunkCards ? 'space-y-2.5 p-3' : 'space-y-3 p-4'}>
+          <div className="max-h-[min(460px,calc(100vh-19rem))] overflow-y-auto overscroll-contain">
+            <div className={useDenseListLayout ? 'space-y-2 p-2.5' : 'space-y-2.5 p-3'}>
               {items.length === 0 ? (
-                <div className="rounded-lg border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+                <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground">
                   当前阶段还没有可展示的内容。
                 </div>
               ) : items.map((item) => (
-                <div key={item.key} className={useCompactChunkCards ? 'rounded-xl border p-2.5' : 'rounded-xl border p-3'}>
-                  <div className={useCompactChunkCards ? 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between' : 'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'}>
-                    <div className={useCompactChunkCards ? 'min-w-0 flex-1 space-y-0.5' : 'min-w-0 flex-1 space-y-1'}>
+                <div key={item.key} className={useDenseListLayout ? 'rounded-lg border p-2.5' : 'rounded-xl border p-3'}>
+                  <div className={useDenseListLayout ? 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between' : 'flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between'}>
+                    <div className={useDenseListLayout ? 'min-w-0 flex-1 space-y-0.5' : 'min-w-0 flex-1 space-y-1'}>
                       <div className="flex flex-wrap items-center gap-2">
                         <StatusIcon status={item.status} />
                         <span className="font-medium">{item.label}</span>
                         <Badge variant="outline">{statusLabel(item.status)}</Badge>
                       </div>
-                      <div className="text-xs text-muted-foreground">{item.meta}</div>
+                      <div className="text-[11px] leading-4 text-muted-foreground">{item.meta}</div>
                       <div
-                        className={useCompactChunkCards
-                          ? 'max-h-10 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground'
-                          : 'whitespace-pre-wrap text-sm text-muted-foreground'}
+                        className={useDenseListLayout
+                          ? 'max-h-11 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground'
+                          : 'whitespace-pre-wrap text-sm leading-6 text-muted-foreground'}
                       >
                         {item.preview}
                       </div>
@@ -584,6 +580,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                       <Button
                         size="sm"
                         variant="outline"
+                        className="h-8 px-2.5"
                         onClick={() => setSelectedItem(item)}
                       >
                         <Eye className="mr-1 h-3.5 w-3.5" />
@@ -593,6 +590,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-8 px-2.5"
                           onClick={() => handleRegenerate(item)}
                           disabled={regeneratingKey === item.key}
                         >
@@ -604,8 +602,8 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                   </div>
                   {item.error ? (
                     <>
-                      <Separator className="my-3" />
-                      <div className="text-sm text-red-600">{item.error}</div>
+                      <Separator className="my-2" />
+                      <div className="text-xs leading-5 text-red-600">{item.error}</div>
                     </>
                   ) : null}
                 </div>
