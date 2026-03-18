@@ -132,7 +132,14 @@ export default function Manga2NovelApp() {
     regenerateChunk,
     regenerateStory,
     regenerateSection,
+    regenerateWritingPreparation,
     regenerateFinalPolish,
+    updatePageAnalysis,
+    updateChunkSynthesis,
+    updateStorySynthesis,
+    updateWritingPreparation,
+    updateNovelSection,
+    updateFinalPolish,
     updateSceneOutline,
     confirmSceneOutlineAndResume,
     dismissRecoveryNotice,
@@ -395,6 +402,11 @@ export default function Manga2NovelApp() {
           return;
         }
         case 'write-sections': {
+          if (itemIndex < 0) {
+            await regenerateWritingPreparation();
+            toast.success('写作前全书统稿已生成，检查后即可继续进入章节写作。');
+            return;
+          }
           const sectionNumber = await regenerateSection(itemIndex);
           toast.success(`第 ${sectionNumber} 节已重新生成。后面的章节先保留，点“继续”会从后续章节往后刷新。`);
           return;
@@ -409,6 +421,43 @@ export default function Manga2NovelApp() {
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '重新处理失败');
+      throw error;
+    }
+  };
+
+  const handleUpdateItem = async (stage: RequestStage, itemIndex: number, value: unknown) => {
+    try {
+      switch (stage) {
+        case 'analyze-pages':
+          updatePageAnalysis(itemIndex, value);
+          toast.success('逐页分析已保存，后续流程会从受影响的位置继续。');
+          return;
+        case 'synthesize-chunks':
+          updateChunkSynthesis(itemIndex, value);
+          toast.success('分块综合已保存，整书综合及后续阶段已标记为待刷新。');
+          return;
+        case 'synthesize-story':
+          updateStorySynthesis(value);
+          toast.success('整书综合已保存。若场景大纲有变化，请重新确认后再继续。');
+          return;
+        case 'write-sections':
+          if (itemIndex < 0) {
+            updateWritingPreparation(value);
+            toast.success('写作前全书统稿已保存，后续章节已标记为待刷新。');
+            return;
+          }
+          updateNovelSection(itemIndex, value);
+          toast.success('章节内容已保存，后续章节与终稿会从正确位置继续刷新。');
+          return;
+        case 'polish-novel':
+          updateFinalPolish(value);
+          toast.success('全书润色内容已保存。');
+          return;
+        default:
+          return;
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '保存修改失败');
       throw error;
     }
   };
@@ -756,7 +805,11 @@ export default function Manga2NovelApp() {
                     onConfirmAndContinue={confirmSceneOutlineAndResume}
                   />
                 ) : null}
-                <ProgressPanel taskState={taskState} onRegenerateItem={handleRegenerateItem} />
+                <ProgressPanel
+                  taskState={taskState}
+                  onRegenerateItem={handleRegenerateItem}
+                  onUpdateItem={handleUpdateItem}
+                />
               </div>
             </div>
             <Card className="border-dashed bg-muted/5">

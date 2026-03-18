@@ -1898,6 +1898,198 @@ export class TaskOrchestrator {
     };
   }
 
+  updatePageAnalysis(pageIndex: number, value: unknown) {
+    this.ensureReadyForManualEdit('editing a page analysis');
+
+    const page = this.state.pageAnalyses[pageIndex];
+    if (!page) {
+      throw new Error(`Page analysis ${pageIndex + 1} does not exist.`);
+    }
+
+    const record = isRecord(value) ? value : {};
+    const nextCharacters = record.characters !== undefined
+      ? (Array.isArray(record.characters) ? record.characters : [])
+        .map((item) => normalizeCharacterCue(item))
+      : page.characters.map((character) => normalizeCharacterCue(character));
+    const nextDialogue = record.dialogue !== undefined
+      ? (Array.isArray(record.dialogue) ? record.dialogue : [])
+        .map((item) => normalizeDialogueLine(item))
+        .filter((line) => Boolean(line.text))
+      : page.dialogue
+        .map((line) => normalizeDialogueLine(line))
+        .filter((line) => Boolean(line.text));
+
+    page.summary = sanitizeNarrativeText(toString(record.summary, page.summary));
+    page.location = sanitizeNarrativeText(toString(record.location, page.location || '未知')) || '未知';
+    page.timeHint = sanitizeNarrativeText(toString(record.timeHint, page.timeHint || '未知')) || '未知';
+    page.keyEvents = record.keyEvents !== undefined
+      ? sanitizeNarrativeArray(record.keyEvents)
+      : [...page.keyEvents];
+    page.characters = nextCharacters;
+    page.dialogue = sanitizeDialogueAssignments(nextDialogue, nextCharacters);
+    page.narrationText = record.narrationText !== undefined
+      ? sanitizePageVisibleTextArray(record.narrationText)
+      : [...page.narrationText];
+    page.visualText = record.visualText !== undefined
+      ? sanitizePageVisibleTextArray(record.visualText)
+      : [...page.visualText];
+    this.markManualEditComplete(page);
+    this.markChunkSynthesesPendingFrom(page.chunkIndex);
+    this.syncProcessingCheckpointAfterManualEdit();
+    this.emit('state-change');
+  }
+
+  updateChunkSynthesis(chunkIndex: number, value: unknown) {
+    this.ensureReadyForManualEdit('editing a chunk synthesis');
+
+    const chunk = this.state.chunkSyntheses[chunkIndex];
+    if (!chunk) {
+      throw new Error(`Chunk synthesis ${chunkIndex + 1} does not exist.`);
+    }
+
+    const record = isRecord(value) ? value : {};
+    const pageAnalyses = this.state.pageAnalyses.filter((page) => page.chunkIndex === chunkIndex);
+
+    chunk.title = sanitizeNarrativeText(toString(record.title, chunk.title));
+    chunk.summary = sanitizeNarrativeText(toString(record.summary, chunk.summary));
+    chunk.draftText = sanitizeNarrativeText(toString(record.draftText, chunk.draftText));
+    chunk.keyDevelopments = record.keyDevelopments !== undefined
+      ? sanitizeNarrativeArray(record.keyDevelopments)
+      : [...chunk.keyDevelopments];
+    chunk.dialogueResolutions = record.dialogueResolutions !== undefined
+      ? sanitizeChunkDialogueResolutions(record.dialogueResolutions, pageAnalyses)
+      : chunk.dialogueResolutions.map((resolution) => ({ ...resolution }));
+    chunk.continuitySummary = sanitizeNarrativeText(toString(record.continuitySummary, chunk.continuitySummary));
+    this.markManualEditComplete(chunk);
+
+    const sourceChunk = this.state.chunks[chunkIndex];
+    if (sourceChunk) {
+      sourceChunk.status = 'success';
+      sourceChunk.plotSummary = chunk.summary || undefined;
+      sourceChunk.endingDetail = chunk.continuitySummary || undefined;
+      sourceChunk.novelText = chunk.draftText || undefined;
+      sourceChunk.error = undefined;
+    }
+
+    this.markGlobalSynthesisPending();
+    this.syncProcessingCheckpointAfterManualEdit();
+    this.emit('state-change');
+  }
+
+  updateStorySynthesis(value: unknown) {
+    this.ensureReadyForManualEdit('editing the story synthesis');
+
+    const record = isRecord(value) ? value : {};
+    const currentSceneOutline = normalizeSceneOutlineInput(
+      this.state.globalSynthesis.sceneOutline,
+      this.state.chunkSyntheses.length
+    );
+    const nextSceneOutline = record.sceneOutline !== undefined
+      ? normalizeSceneOutlineInput(
+          Array.isArray(record.sceneOutline) ? record.sceneOutline as ScenePlan[] : [],
+          this.state.chunkSyntheses.length
+        )
+      : currentSceneOutline;
+    const sceneOutlineChanged = JSON.stringify(nextSceneOutline) !== JSON.stringify(currentSceneOutline);
+    const outlineConfirmed = this.state.globalSynthesis.outlineConfirmed;
+
+    this.state.globalSynthesis.storyOverview = sanitizeNarrativeText(
+      toString(record.storyOverview, this.state.globalSynthesis.storyOverview)
+    );
+    this.state.globalSynthesis.worldGuide = sanitizeNarrativeText(
+      toString(record.worldGuide, this.state.globalSynthesis.worldGuide)
+    );
+    this.state.globalSynthesis.characterGuide = sanitizeNarrativeText(
+      toString(record.characterGuide, this.state.globalSynthesis.characterGuide)
+    );
+    this.state.globalSynthesis.sceneOutline = nextSceneOutline;
+    this.state.globalSynthesis.writingConstraints = record.writingConstraints !== undefined
+      ? sanitizeNarrativeArray(record.writingConstraints)
+      : [...this.state.globalSynthesis.writingConstraints];
+    this.markManualEditComplete(this.state.globalSynthesis);
+    this.state.globalSynthesis.outlineConfirmed = this.isSplitDraftMode()
+      ? true
+      : sceneOutlineChanged
+        ? false
+        : outlineConfirmed;
+    this.state.memory.globalSummary = this.state.globalSynthesis.storyOverview || this.state.memory.globalSummary;
+
+    if (sceneOutlineChanged || this.state.novelSections.length === 0) {
+      this.initializeSectionsFromGlobalSynthesis();
+    }
+
+    this.markSectionsPendingFrom(0);
+    this.syncProcessingCheckpointAfterManualEdit();
+    this.emit('state-change');
+  }
+
+  updateWritingPreparation(value: unknown) {
+    this.ensureReadyForManualEdit('editing the pre-drafting guide');
+
+    const record = isRecord(value) ? value : null;
+    this.state.writingPreparation.voiceGuide = normalizeGuideText(record?.voiceGuide ?? value);
+    this.markManualEditComplete(this.state.writingPreparation);
+
+    if (this.state.novelSections.length === 0 && this.state.globalSynthesis.sceneOutline.length > 0) {
+      this.initializeSectionsFromGlobalSynthesis();
+    }
+
+    this.markSectionsPendingPreservingWritingPreparation(0);
+    this.syncProcessingCheckpointAfterManualEdit();
+    this.emit('state-change');
+  }
+
+  updateNovelSection(sectionIndex: number, value: unknown) {
+    this.ensureReadyForManualEdit('editing a section draft');
+
+    const section = this.state.novelSections[sectionIndex];
+    if (!section) {
+      throw new Error(`Section ${sectionIndex + 1} does not exist.`);
+    }
+
+    const record = isRecord(value) ? value : {};
+    section.title = sanitizeNarrativeText(toString(record.title, section.title));
+    section.markdownBody = sanitizeNarrativeText(toString(record.markdownBody, section.markdownBody));
+    section.continuitySummary = sanitizeNarrativeText(
+      toString(record.continuitySummary, section.continuitySummary)
+    );
+    this.markManualEditComplete(section);
+    this.refreshFullNovel();
+
+    if (sectionIndex + 1 < this.state.novelSections.length) {
+      this.resetSectionsFrom(sectionIndex + 1);
+    } else {
+      this.resetFinalPolishForRefresh();
+      this.state.memory.completedChunks = this.state.novelSections
+        .filter((item) => item.status === 'success')
+        .map((item) => item.index);
+      this.state.memory.previousEnding = this.findPreviousContinuitySummary(this.state.novelSections.length);
+      this.state.memory.globalSummary = this.state.globalSynthesis.storyOverview;
+    }
+
+    this.syncProcessingCheckpointAfterManualEdit();
+    this.emit('state-change');
+  }
+
+  updateFinalPolish(value: unknown) {
+    this.ensureReadyForManualEdit('editing the final polish');
+
+    const record = isRecord(value) ? value : null;
+    this.state.finalPolish.markdownBody = sanitizeNarrativeText(
+      toString(record?.markdownBody ?? value, this.state.finalPolish.markdownBody)
+    );
+    if (record?.voiceGuide !== undefined) {
+      this.state.finalPolish.voiceGuide = sanitizeNarrativeText(toString(record.voiceGuide)) || undefined;
+    }
+    this.markManualEditComplete(this.state.finalPolish);
+    this.state.finalPolish.phase = 'complete';
+    this.state.finalPolish.currentSectionIndex = this.state.novelSections.length;
+    this.state.finalPolish.totalSections = this.state.novelSections.length;
+    this.refreshFullNovel();
+    this.syncProcessingCheckpointAfterManualEdit();
+    this.emit('state-change');
+  }
+
   updateSceneOutline(sceneOutline: ScenePlan[]) {
     if (
       this.state.globalSynthesis.status !== 'success'
@@ -2810,6 +3002,60 @@ export class TaskOrchestrator {
     return nextPendingSectionIndex === -1 ? Math.max(0, fallbackIndex) : nextPendingSectionIndex;
   }
 
+  private getResumeTargetAfterManualEdit(): { stage: RequestStage; chunkIndex: number } | null {
+    if (!this.isSplitDraftMode()) {
+      const nextPendingBatchIndex = this.findNextPendingPageAnalysisBatchIndex(0);
+      if (nextPendingBatchIndex !== -1) {
+        return {
+          stage: 'analyze-pages',
+          chunkIndex: nextPendingBatchIndex,
+        };
+      }
+    }
+
+    const nextPendingChunkIndex = this.findNextPendingChunkSynthesisIndex(0);
+    if (nextPendingChunkIndex !== -1) {
+      return {
+        stage: 'synthesize-chunks',
+        chunkIndex: nextPendingChunkIndex,
+      };
+    }
+
+    if (
+      !isTerminalChunkStatus(this.state.globalSynthesis.status, this.state.globalSynthesis.error)
+      || (!this.isSplitDraftMode() && !this.state.globalSynthesis.outlineConfirmed)
+    ) {
+      return {
+        stage: 'synthesize-story',
+        chunkIndex: 0,
+      };
+    }
+
+    const writingPreparationReady = isTerminalChunkStatus(
+      this.state.writingPreparation.status,
+      this.state.writingPreparation.error
+    );
+    const nextPendingSectionIndex = this.findNextPendingSectionIndex(0);
+    if (!writingPreparationReady || nextPendingSectionIndex !== -1) {
+      return {
+        stage: 'write-sections',
+        chunkIndex: nextPendingSectionIndex === -1 ? 0 : nextPendingSectionIndex,
+      };
+    }
+
+    if (
+      this.state.config.enableFinalPolish
+      && !isTerminalChunkStatus(this.state.finalPolish.status, this.state.finalPolish.error)
+    ) {
+      return {
+        stage: 'polish-novel',
+        chunkIndex: 0,
+      };
+    }
+
+    return null;
+  }
+
   private ensureReadyForSingleItemReplay(actionLabel: string) {
     if (!this.apiConfig) {
       throw new Error('Please configure the API first.');
@@ -2818,6 +3064,45 @@ export class TaskOrchestrator {
     if (this.state.status === 'running' || this.state.status === 'preparing') {
       throw new Error(`Wait for the current task to stop before ${actionLabel}.`);
     }
+  }
+
+  private ensureReadyForManualEdit(actionLabel: string) {
+    if (this.state.status === 'running' || this.state.status === 'preparing') {
+      throw new Error(`Wait for the current task to stop before ${actionLabel}.`);
+    }
+  }
+
+  private markManualEditComplete(item: {
+    runtimeMs: number;
+    runtimeStartedAt?: string;
+    status: ChunkStatus;
+    error?: string;
+  }) {
+    if (item.runtimeStartedAt) {
+      stopTrackedRuntime(item);
+    }
+
+    item.status = 'success';
+    item.error = undefined;
+  }
+
+  private syncProcessingCheckpointAfterManualEdit() {
+    this.abortController?.abort();
+    this.abortController = null;
+    this.isPaused = false;
+    this.stopRuntimeTracking();
+
+    const resumeTarget = this.getResumeTargetAfterManualEdit();
+    if (!resumeTarget) {
+      this.state.status = 'completed';
+      this.state.currentStage = 'idle';
+      this.state.currentChunkIndex = 0;
+      return;
+    }
+
+    this.state.status = 'paused';
+    this.state.currentStage = resumeTarget.stage;
+    this.state.currentChunkIndex = resumeTarget.chunkIndex;
   }
 
   private beginSingleItemReplay(stage: RequestStage, chunkIndex: number) {
@@ -3300,6 +3585,24 @@ export class TaskOrchestrator {
     this.state.writingPreparation.error = undefined;
     resetTrackedRuntime(this.state.writingPreparation);
     this.state.writingPreparation.retryCount = 0;
+  }
+
+  private markSectionsPendingPreservingWritingPreparation(startIndex: number) {
+    for (let index = startIndex; index < this.state.novelSections.length; index += 1) {
+      const section = this.state.novelSections[index];
+      section.status = 'pending';
+      section.error = undefined;
+      resetTrackedRuntime(section);
+      section.retryCount = 0;
+    }
+
+    this.resetFinalPolishForRefresh();
+    this.state.memory.completedChunks = this.state.novelSections
+      .slice(0, startIndex)
+      .filter((section) => section.status === 'success')
+      .map((section) => section.index);
+    this.state.memory.previousEnding = this.findPreviousContinuitySummary(startIndex);
+    this.state.memory.globalSummary = this.state.globalSynthesis.storyOverview;
   }
 
   private resetFinalPolishForRefresh() {
@@ -4900,6 +5203,40 @@ export class TaskOrchestrator {
       section.error = errorMessage;
       this.emit('chunk-error', sectionIndex, errorMessage);
       this.pauseAfterSingleItemReplay('write-sections', sectionIndex);
+      throw error;
+    }
+  }
+
+  async regenerateWritingPreparationAndPause(): Promise<void> {
+    this.ensureReadyForSingleItemReplay('regenerating the pre-drafting whole-book guide');
+
+    if (
+      this.state.globalSynthesis.status !== 'success'
+      && this.state.globalSynthesis.status !== 'skipped'
+    ) {
+      throw new Error('Story synthesis is not ready yet.');
+    }
+
+    if (this.state.novelSections.length === 0) {
+      this.initializeSectionsFromGlobalSynthesis();
+    }
+
+    this.markWritingPreparationPending();
+    this.beginSingleItemReplay('write-sections', 0);
+
+    try {
+      await this.ensureWritingPreparation();
+      this.pauseAfterSingleItemReplay('write-sections', this.getResumeSectionIndex(0));
+      return;
+    } catch (error) {
+      if (isAbortError(error)) {
+        this.pauseAfterSingleItemReplay('write-sections', 0);
+        throw error;
+      }
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.emit('chunk-error', 0, errorMessage);
+      this.pauseAfterSingleItemReplay('write-sections', 0);
       throw error;
     }
   }

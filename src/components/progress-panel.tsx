@@ -7,6 +7,7 @@ import {
   Clock,
   Eye,
   Loader2,
+  Pencil,
   RefreshCw,
   SkipForward,
   XCircle,
@@ -23,6 +24,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
 import {
   applyDialogueResolutionMap,
   createDialogueResolutionMap,
@@ -34,6 +36,7 @@ import { WORKFLOW_MODE_LABELS } from '@/lib/types';
 interface ProgressPanelProps {
   taskState: TaskState;
   onRegenerateItem?: (stage: RequestStage, itemIndex: number) => Promise<void>;
+  onUpdateItem?: (stage: RequestStage, itemIndex: number, value: unknown) => Promise<void>;
 }
 
 type StageCard = {
@@ -438,6 +441,95 @@ function buildStageItems(taskState: TaskState, stage: RequestStage): ProgressIte
   }
 }
 
+function buildEditablePayload(taskState: TaskState, item: ProgressItem): unknown {
+  switch (item.stage) {
+    case 'analyze-pages': {
+      const page = taskState.pageAnalyses[item.itemIndex];
+      return page
+        ? {
+            summary: page.summary || '',
+            location: page.location || '未知',
+            timeHint: page.timeHint || '未知',
+            keyEvents: [...page.keyEvents],
+            dialogue: page.dialogue.map((line) => ({ ...line })),
+            narrationText: [...page.narrationText],
+            visualText: [...page.visualText],
+            characters: page.characters.map((character) => ({
+              ...character,
+              traits: [...character.traits],
+              relationshipHints: [...character.relationshipHints],
+              evidence: [...character.evidence],
+            })),
+          }
+        : {};
+    }
+    case 'synthesize-chunks': {
+      const chunk = taskState.chunkSyntheses[item.itemIndex];
+      return chunk
+        ? {
+            title: chunk.title || '',
+            summary: chunk.summary || '',
+            draftText: chunk.draftText || '',
+            keyDevelopments: [...chunk.keyDevelopments],
+            dialogueResolutions: chunk.dialogueResolutions.map((resolution) => ({ ...resolution })),
+            continuitySummary: chunk.continuitySummary || '',
+          }
+        : {};
+    }
+    case 'synthesize-story':
+      return {
+        storyOverview: taskState.globalSynthesis.storyOverview || '',
+        worldGuide: taskState.globalSynthesis.worldGuide || '',
+        characterGuide: taskState.globalSynthesis.characterGuide || '',
+        sceneOutline: taskState.globalSynthesis.sceneOutline.map((scene) => ({
+          ...scene,
+          chunkIndexes: [...scene.chunkIndexes],
+        })),
+        writingConstraints: [...taskState.globalSynthesis.writingConstraints],
+      };
+    case 'write-sections':
+      if (item.itemIndex < 0) {
+        return {
+          voiceGuide: taskState.writingPreparation.voiceGuide || '',
+        };
+      }
+
+      return taskState.novelSections[item.itemIndex]
+        ? {
+            title: taskState.novelSections[item.itemIndex].title || '',
+            markdownBody: taskState.novelSections[item.itemIndex].markdownBody || '',
+            continuitySummary: taskState.novelSections[item.itemIndex].continuitySummary || '',
+          }
+        : {};
+    case 'polish-novel':
+      return {
+        markdownBody: taskState.finalPolish.markdownBody || '',
+        voiceGuide: taskState.finalPolish.voiceGuide || '',
+      };
+    default:
+      return {};
+  }
+}
+
+function getEditDescription(item: ProgressItem): string {
+  switch (item.stage) {
+    case 'analyze-pages':
+      return '修改这页的识别结果。保持 JSON 结构，只改需要的字段即可。';
+    case 'synthesize-chunks':
+      return '修改这一块的综合结果。保存后会刷新整书综合及后续阶段。';
+    case 'synthesize-story':
+      return '修改整书综合。若 sceneOutline 有变化，继续前需要重新确认大纲。';
+    case 'write-sections':
+      return item.itemIndex < 0
+        ? '修改写作前统稿。保存后后续章节会标记为待刷新。'
+        : '修改章节内容。保存后后续章节与终稿会重新衔接。';
+    case 'polish-novel':
+      return '修改最终润色稿。保存后会直接更新右侧预览。';
+    default:
+      return '修改当前内容。';
+  }
+}
+
 function buildStageCards(taskState: TaskState): StageCard[] {
   const cards: StageCard[] = [];
 
@@ -490,9 +582,11 @@ function canRegenerate(
   taskState: TaskState,
   onRegenerateItem?: (stage: RequestStage, itemIndex: number) => Promise<void>
 ): item is ProgressItem {
+  const isReplayablePreparation = item?.stage === 'write-sections' && item.itemIndex === -1;
+
   return Boolean(
     item
-    && item.itemIndex >= 0
+    && (item.itemIndex >= 0 || isReplayablePreparation)
     && item.status !== 'processing'
     && taskState.status !== 'running'
     && taskState.status !== 'preparing'
@@ -500,9 +594,35 @@ function canRegenerate(
   );
 }
 
-export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProps) {
+function getRegenerateActionLabel(item: ProgressItem): string {
+  if (item.stage === 'write-sections' && item.itemIndex === -1 && item.status === 'pending') {
+    return '开始';
+  }
+
+  return '重跑';
+}
+
+function canEditItem(
+  item: ProgressItem | null,
+  taskState: TaskState,
+  onUpdateItem?: (stage: RequestStage, itemIndex: number, value: unknown) => Promise<void>
+): item is ProgressItem {
+  return Boolean(
+    item
+    && item.status !== 'processing'
+    && taskState.status !== 'running'
+    && taskState.status !== 'preparing'
+    && onUpdateItem
+  );
+}
+
+export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: ProgressPanelProps) {
   const [selectedStage, setSelectedStage] = useState<RequestStage | null>(null);
   const [selectedItem, setSelectedItem] = useState<ProgressItem | null>(null);
+  const [editingItem, setEditingItem] = useState<ProgressItem | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [regeneratingKey, setRegeneratingKey] = useState<string | null>(null);
   const [anchoredItemKey, setAnchoredItemKey] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -614,7 +734,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   }, [anchoredItemKey, items, regeneratingKey]);
 
   const handleRegenerate = async (item: ProgressItem) => {
-    if (!onRegenerateItem || item.itemIndex < 0) {
+    if (!onRegenerateItem) {
       return;
     }
 
@@ -626,6 +746,37 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
       setSelectedItem(null);
     } finally {
       setRegeneratingKey(null);
+    }
+  };
+
+  const handleStartEdit = (item: ProgressItem) => {
+    setEditingItem(item);
+    setEditDraft(JSON.stringify(buildEditablePayload(taskState, item), null, 2));
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingItem || !onUpdateItem) {
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(editDraft);
+    } catch {
+      setEditError('请输入合法的 JSON。');
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      await onUpdateItem(editingItem.stage, editingItem.itemIndex, parsed);
+      setEditingItem(null);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : '保存失败，请稍后再试。');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -749,14 +900,26 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                         <Eye className="mr-1 h-3.5 w-3.5" />
                         详情
                       </Button>
-                      {canRegenerate(item, taskState, onRegenerateItem) ? (
+                      {canEditItem(item, taskState, onUpdateItem) ? (
                         <Button
                           size="sm"
                           variant="outline"
                           className="h-8 px-2.5"
-                          onClick={() => handleRegenerate(item)}
-                          disabled={regeneratingKey === item.key}
+                          onClick={() => handleStartEdit(item)}
                         >
+                          <Pencil className="mr-1 h-3.5 w-3.5" />
+                          修改
+                        </Button>
+                      ) : null}
+                      {canRegenerate(item, taskState, onRegenerateItem) ? (
+                        <Button
+                          size="sm"
+                        variant="outline"
+                        className="h-8 px-2.5"
+                        onClick={() => handleRegenerate(item)}
+                        disabled={regeneratingKey === item.key}
+                        title={getRegenerateActionLabel(item)}
+                      >
                           <RefreshCw className={`mr-1 h-3.5 w-3.5 ${regeneratingKey === item.key ? 'animate-spin' : ''}`} />
                           重跑
                         </Button>
@@ -775,6 +938,66 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
           </div>
         </div>
       </CardContent>
+
+      <Dialog
+        open={Boolean(editingItem)}
+        onOpenChange={(open) => {
+          if (!open && !savingEdit) {
+            setEditingItem(null);
+            setEditError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          {editingItem ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{editingItem.label} · 修改</DialogTitle>
+                <div className="text-xs leading-5 text-muted-foreground">
+                  {getEditDescription(editingItem)}
+                </div>
+              </DialogHeader>
+              <div className="space-y-3">
+                <Textarea
+                  value={editDraft}
+                  onChange={(event) => {
+                    setEditDraft(event.target.value);
+                    if (editError) {
+                      setEditError(null);
+                    }
+                  }}
+                  spellCheck={false}
+                  className="min-h-[360px] font-mono text-xs leading-6"
+                />
+                <div className="text-[11px] leading-5 text-muted-foreground">
+                  保存时会校验 JSON，并把修改写回当前阶段；缺失字段会沿用原值。
+                </div>
+                {editError ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {editError}
+                  </div>
+                ) : null}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setEditingItem(null);
+                      setEditError(null);
+                    }}
+                    disabled={savingEdit}
+                  >
+                    取消
+                  </Button>
+                  <Button type="button" onClick={handleSaveEdit} disabled={savingEdit}>
+                    {savingEdit ? '保存中...' : '保存修改'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(selectedItem)} onOpenChange={(open) => !open && setSelectedItem(null)}>
         <DialogContent className="max-w-3xl">

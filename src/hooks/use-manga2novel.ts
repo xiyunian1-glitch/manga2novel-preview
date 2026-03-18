@@ -1039,8 +1039,42 @@ const startProcessing = useCallback(async () => {
     return orchestrator.regenerateSectionAndPause(sectionIndex);
   }, [orchestrator]);
 
+  const regenerateWritingPreparation = useCallback(async () => {
+    return orchestrator.regenerateWritingPreparationAndPause();
+  }, [orchestrator]);
+
   const regenerateFinalPolish = useCallback(async () => {
     return orchestrator.regenerateFinalPolishAndPause();
+  }, [orchestrator]);
+
+  const updatePageAnalysis = useCallback((pageIndex: number, value: unknown) => {
+    orchestrator.updatePageAnalysis(pageIndex, value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateChunkSynthesis = useCallback((chunkIndex: number, value: unknown) => {
+    orchestrator.updateChunkSynthesis(chunkIndex, value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateStorySynthesis = useCallback((value: unknown) => {
+    orchestrator.updateStorySynthesis(value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateWritingPreparation = useCallback((value: unknown) => {
+    orchestrator.updateWritingPreparation(value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateNovelSection = useCallback((sectionIndex: number, value: unknown) => {
+    orchestrator.updateNovelSection(sectionIndex, value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateFinalPolish = useCallback((value: unknown) => {
+    orchestrator.updateFinalPolish(value);
+    setTaskState(orchestrator.getState());
   }, [orchestrator]);
 
   const updateSceneOutline = useCallback((sceneOutline: ScenePlan[]) => {
@@ -1115,7 +1149,14 @@ const startProcessing = useCallback(async () => {
     regenerateChunk,
     regenerateStory,
     regenerateSection,
+    regenerateWritingPreparation,
     regenerateFinalPolish,
+    updatePageAnalysis,
+    updateChunkSynthesis,
+    updateStorySynthesis,
+    updateWritingPreparation,
+    updateNovelSection,
+    updateFinalPolish,
     updateSceneOutline,
     confirmSceneOutline,
     confirmSceneOutlineAndResume,

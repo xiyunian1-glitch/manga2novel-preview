@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ListTree, Plus, Save, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, ListTree, Plus, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -189,11 +189,19 @@ export function SceneOutlineEditor({
   const [draftScenes, setDraftScenes] = useState<DraftScene[]>(() => toDraftScenes(sceneOutline));
   const [dirty, setDirty] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [expandedSceneIndex, setExpandedSceneIndex] = useState<number | null>(null);
 
   useEffect(() => {
     setDraftScenes(toDraftScenes(sceneOutline));
     setDirty(false);
+    setExpandedSceneIndex(null);
   }, [sceneOutline]);
+
+  useEffect(() => {
+    if (expandedSceneIndex !== null && expandedSceneIndex >= draftScenes.length) {
+      setExpandedSceneIndex(null);
+    }
+  }, [draftScenes.length, expandedSceneIndex]);
 
   const chunkTitles = useMemo(() => (
     new Map(chunkSyntheses.map((chunk) => [chunk.index, chunk.title || `分块 ${chunk.index + 1}`]))
@@ -313,6 +321,7 @@ export function SceneOutlineEditor({
         {draftScenes.map((scene, index) => {
           const chunkIndexes = parseChunkIndexes(scene.chunkIndexesText);
           const sceneInsight = sceneInsights[index];
+          const isExpanded = expandedSceneIndex === index;
 
           return (
             <div key={scene.sceneId || `scene-${index}`} className="space-y-3 rounded-xl border bg-background/90 p-4">
@@ -347,6 +356,7 @@ export function SceneOutlineEditor({
                               sceneId: `scene-${sceneIndex + 1}`,
                             }));
                         });
+                        setExpandedSceneIndex(null);
                         setDirty(true);
                       }}
                       disabled={disabled}
@@ -361,6 +371,7 @@ export function SceneOutlineEditor({
                     className="h-8 px-2 text-destructive"
                     onClick={() => {
                       setDraftScenes((prev) => prev.filter((_, sceneIndex) => sceneIndex !== index));
+                      setExpandedSceneIndex(null);
                       setDirty(true);
                     }}
                     disabled={disabled || draftScenes.length <= 1}
@@ -397,13 +408,42 @@ export function SceneOutlineEditor({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>场景摘要</Label>
-                  <Textarea
-                    value={scene.summary}
-                    onChange={(event) => updateScene(index, { summary: event.target.value })}
-                    disabled={disabled}
-                    className="min-h-28 resize-y leading-6"
-                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <Label>场景摘要</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2.5"
+                      onClick={() => setExpandedSceneIndex((prev) => (prev === index ? null : index))}
+                    >
+                      {isExpanded ? (
+                        <>
+                          <ChevronUp className="mr-1 h-3.5 w-3.5" />
+                          收起
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="mr-1 h-3.5 w-3.5" />
+                          详情
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  {isExpanded ? (
+                    <Textarea
+                      value={scene.summary}
+                      onChange={(event) => updateScene(index, { summary: event.target.value })}
+                      disabled={disabled}
+                      className="min-h-32 max-h-80 resize-y overflow-y-auto leading-6 [field-sizing:fixed]"
+                    />
+                  ) : (
+                    <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                      <div className="max-h-24 overflow-hidden whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+                        {scene.summary.trim() || '暂无摘要'}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -432,6 +472,7 @@ export function SceneOutlineEditor({
             variant="outline"
             onClick={() => {
               setDraftScenes((prev) => [...prev, buildNextScene()]);
+              setExpandedSceneIndex(draftScenes.length);
               setDirty(true);
             }}
             disabled={disabled}
@@ -448,6 +489,7 @@ export function SceneOutlineEditor({
               const nextScenes = optimizeDraftScenes(draftScenes);
               const changed = JSON.stringify(nextScenes) !== JSON.stringify(draftScenes);
               setDraftScenes(nextScenes);
+              setExpandedSceneIndex(null);
               if (changed) {
                 setDirty(true);
                 toast.success('已按较短场景自动整理');
