@@ -948,7 +948,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           }
         }}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-hidden">
           {editingItem ? (
             <>
               <DialogHeader>
@@ -957,7 +957,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                   {getEditDescription(editingItem)}
                 </div>
               </DialogHeader>
-              <div className="space-y-3">
+              <div className="flex min-h-0 flex-col gap-3">
                 <Textarea
                   value={editDraft}
                   onChange={(event) => {
@@ -967,7 +967,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                     }
                   }}
                   spellCheck={false}
-                  className="min-h-[360px] font-mono text-xs leading-6"
+                  className="h-[65vh] min-h-[18rem] max-h-[38rem] resize-y overflow-y-auto font-mono text-xs leading-6 [field-sizing:fixed]"
                 />
                 <div className="text-[11px] leading-5 text-muted-foreground">
                   保存时会校验 JSON，并把修改写回当前阶段；缺失字段会沿用原值。
