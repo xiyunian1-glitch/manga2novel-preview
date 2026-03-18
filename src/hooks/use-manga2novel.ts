@@ -23,7 +23,6 @@ import {
   DEFAULT_STAGE_API_OVERRIDES,
   DEFAULT_STAGE_MODELS,
   DEFAULT_STORY_SYNTHESIS,
-  DEFAULT_WRITING_PREPARATION,
   getEnabledRequestStages,
   LEGACY_OPENROUTER_BASE_URL,
   PROVIDER_DISPLAY_NAMES,
@@ -89,7 +88,7 @@ function resolvePresetIdFromPresets(systemPrompt: string, presets: CreativePrese
 
 function canResolveModels(
   config: APIConfig,
-  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => Boolean(resolveStageModel(config, stage)));
 }
@@ -372,7 +371,7 @@ function ensureUniqueProfileName(
 
 function canResolveStageAccess(
   config: APIConfig,
-  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => {
     const stageConfig = resolveStageAPIConfig(config, stage);
@@ -488,7 +487,6 @@ export function useManga2Novel() {
       sceneOutline: [],
       writingConstraints: [],
     },
-    writingPreparation: { ...DEFAULT_WRITING_PREPARATION },
     novelSections: [],
     finalPolish: { ...DEFAULT_FINAL_POLISH },
     memory: { ...DEFAULT_MEMORY_STATE },
@@ -500,8 +498,6 @@ export function useManga2Novel() {
     },
     currentChunkIndex: -1,
     fullNovel: '',
-    runtimeMs: 0,
-    runtimeStartedAt: undefined,
     lastAIRequest: undefined,
   });
   const [configLoaded, setConfigLoaded] = useState(false);

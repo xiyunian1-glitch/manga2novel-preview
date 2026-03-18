@@ -1,7 +1,6 @@
 export type APIProvider = 'compatible' | 'gemini';
 export type RequestStage = Exclude<PipelineStage, 'idle'>;
 export type WritingMode = 'faithful' | 'literary';
-export type WorkflowMode = 'page-analysis' | 'split-draft';
 
 export const REQUEST_STAGES: RequestStage[] = [
   'analyze-pages',
@@ -139,7 +138,6 @@ export interface ChunkSynthesis {
   status: ChunkStatus;
   title?: string;
   summary?: string;
-  draftText?: string;
   keyDevelopments: string[];
   continuitySummary?: string;
   error?: string;
@@ -165,23 +163,9 @@ export interface StorySynthesis {
   retryCount: number;
 }
 
-export interface WritingPreparation {
-  status: ChunkStatus;
-  voiceGuide: string;
-  error?: string;
-  retryCount: number;
-}
-
-export type FinalPolishPhase = 'idle' | 'build-voice-guide' | 'polish-sections' | 'complete';
-
 export interface FinalPolish {
   status: ChunkStatus;
   markdownBody?: string;
-  voiceGuide?: string;
-  polishedSectionBodies: string[];
-  currentSectionIndex: number;
-  totalSections: number;
-  phase: FinalPolishPhase;
   error?: string;
   retryCount: number;
 }
@@ -204,10 +188,8 @@ export interface MemoryState {
 }
 
 export interface OrchestratorConfig {
-  workflowMode: WorkflowMode;
   chunkSize: number;
   synthesisChunkCount: number;
-  splitPartCount: number;
   maxConcurrency: number;
   maxRetries: number;
   retryDelay: number;
@@ -227,7 +209,7 @@ export interface LastAIRequestAttempt {
   sentAt: string;
   finishedAt?: string;
   maxOutputTokens?: number;
-  outcome: 'running' | 'success' | 'error';
+  outcome: 'success' | 'error';
   error?: string;
   nextAction?: string;
 }
@@ -259,7 +241,6 @@ export interface TaskState {
   pageAnalyses: PageAnalysis[];
   chunkSyntheses: ChunkSynthesis[];
   globalSynthesis: StorySynthesis;
-  writingPreparation: WritingPreparation;
   novelSections: NovelSection[];
   finalPolish: FinalPolish;
   memory: MemoryState;
@@ -267,16 +248,12 @@ export interface TaskState {
   creativeSettings: CreativeSettings;
   currentChunkIndex: number;
   fullNovel: string;
-  runtimeMs: number;
-  runtimeStartedAt?: string;
   lastAIRequest?: LastAIRequest;
 }
 
 export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
-  workflowMode: 'page-analysis',
   chunkSize: 1,
   synthesisChunkCount: 8,
-  splitPartCount: 4,
   maxConcurrency: 3,
   maxRetries: 3,
   retryDelay: 2000,
@@ -374,22 +351,18 @@ export function resolveStageAPIConfig(config: APIConfig, stage: RequestStage): A
 }
 
 export function getEnabledRequestStages(
-  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
 ): RequestStage[] {
-  const enabledStages = REQUEST_STAGES.filter((stage) => (
-    !(orchestratorConfig?.workflowMode === 'split-draft' && stage === 'analyze-pages')
-  ));
-
   if (orchestratorConfig?.enableFinalPolish) {
-    return enabledStages;
+    return REQUEST_STAGES;
   }
 
-  return enabledStages.filter((stage) => stage !== 'polish-novel');
+  return REQUEST_STAGES.filter((stage) => stage !== 'polish-novel');
 }
 
 export function canResolveStageAccess(
   config: APIConfig,
-  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => {
     const stageConfig = resolveStageAPIConfig(config, stage);
@@ -414,18 +387,8 @@ export const DEFAULT_STORY_SYNTHESIS: StorySynthesis = {
   retryCount: 0,
 };
 
-export const DEFAULT_WRITING_PREPARATION: WritingPreparation = {
-  status: 'pending',
-  voiceGuide: '',
-  retryCount: 0,
-};
-
 export const DEFAULT_FINAL_POLISH: FinalPolish = {
   status: 'pending',
-  polishedSectionBodies: [],
-  currentSectionIndex: 0,
-  totalSections: 0,
-  phase: 'idle',
   retryCount: 0,
 };
 
@@ -440,11 +403,6 @@ export const DEFAULT_CREATIVE_SETTINGS: CreativeSettings = {
 export const WRITING_MODE_LABELS: Record<WritingMode, string> = {
   faithful: '忠实转写',
   literary: '文学改写',
-};
-
-export const WORKFLOW_MODE_LABELS: Record<WorkflowMode, string> = {
-  'page-analysis': '逐页分析',
-  'split-draft': '均分生成',
 };
 
 export const DEFAULT_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
