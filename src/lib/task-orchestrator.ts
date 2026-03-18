@@ -1257,6 +1257,16 @@ function isInputTokenLimitError(message: string): boolean {
   return /prompt_tokens\s*\(\d+\)\s*must be less than max_seq_len\s*\(\d+\)/i.test(message);
 }
 
+function isImageInputUnsupportedError(message: string): boolean {
+  return /does not support images|cannot receive image_url|unknown variant [`"]image_url[`"]|expected [`"]text[`"]|image input|图片消息|图片输入|图像输入|视觉输入/i.test(message);
+}
+
+function shouldFallbackChunkSynthesisToTextOnly(message: string): boolean {
+  return isInputTokenLimitError(message)
+    || isImageInputUnsupportedError(message)
+    || /context length|input (?:is )?too (?:long|large)|too many images?|prompt is too long/i.test(message);
+}
+
 function isCapacityAvailabilityError(message: string): boolean {
   return isTransientCapacityError(message) || isHardQuotaExceededError(message);
 }
@@ -1278,6 +1288,26 @@ function isTransientGatewayProxyError(message: string): boolean {
 
 function isGeminiFamilyModel(provider: APIProvider, model: string): boolean {
   return provider === 'gemini' || /gemini/i.test(model);
+}
+
+function shouldAvoidImageGroundedChunkSynthesis(
+  provider: APIProvider,
+  model: string,
+  baseUrl?: string,
+  providerLabel?: string
+): boolean {
+  if (provider !== 'compatible') {
+    return false;
+  }
+
+  const normalizedBaseUrl = String(baseUrl || '').trim().replace(/\/+$/, '').toLowerCase();
+  const normalizedProviderLabel = String(providerLabel || '').trim().toLowerCase();
+  const normalizedModel = String(model || '').trim().toLowerCase();
+
+  return normalizedBaseUrl.includes('api.deepseek.com')
+    || normalizedProviderLabel === 'deepseek'
+    || normalizedModel === 'deepseek-chat'
+    || normalizedModel === 'deepseek-reasoner';
 }
 
 function isPageAnalysisConnectionError(message: string): boolean {
@@ -1823,7 +1853,10 @@ export class TaskOrchestrator {
       .map((page) => page.imageName);
   }
 
-  private getChunkRequestImages(chunkIndex: number): Array<{ base64: string; mime: string }> {
+  private getChunkRequestImages(
+    chunkIndex: number,
+    labels?: string[]
+  ): Array<{ base64: string; mime: string; label?: string }> {
     const chunk = this.state.chunks[chunkIndex];
     if (!chunk) {
       return [];
@@ -1837,6 +1870,7 @@ export class TaskOrchestrator {
       return {
         base64: image.processedBase64,
         mime: image.processedMime,
+        label: labels?.[imageIndex],
       };
     });
   }
@@ -1904,8 +1938,17 @@ export class TaskOrchestrator {
     }
 
     const relatedPages = this.state.pageAnalyses.filter((page) => page.chunkIndex === chunkSynthesis.index);
+    const stageAPIConfig = this.resolveAPIConfigForStage('synthesize-chunks');
+    const stageModel = this.resolveModelForStage('synthesize-chunks');
+    const shouldTryImageGrounding = !shouldAvoidImageGroundedChunkSynthesis(
+      stageAPIConfig.provider,
+      stageModel,
+      stageAPIConfig.baseUrl,
+      stageAPIConfig.providerLabel
+    );
+    const chunkImageLabels = relatedPages.map((page) => `[Page ${page.pageNumber}] file=${page.imageName}`);
 
-    return this.requestStructuredData(
+    const requestTextOnlySynthesis = () => this.requestStructuredData(
       chunkSynthesis,
       {
         stage: 'synthesize-chunks',
@@ -1927,6 +1970,7 @@ export class TaskOrchestrator {
             ? this.state.pageAnalyses.filter((page) => page.chunkIndex === chunkIndex - 1)
             : [],
           nextPages: this.state.pageAnalyses.filter((page) => page.chunkIndex === chunkIndex + 1),
+          includeChunkImages: false,
         }),
         temperature: SYNTHESIS_TEMPERATURE,
         maxOutputTokens: SYNTHESIS_MAX_TOKENS,
@@ -1934,6 +1978,51 @@ export class TaskOrchestrator {
       },
       parseChunkSynthesisResult
     );
+
+    if (!shouldTryImageGrounding) {
+      return requestTextOnlySynthesis();
+    }
+
+    try {
+      return await this.requestStructuredData(
+        chunkSynthesis,
+        {
+          stage: 'synthesize-chunks',
+          itemLabel: `第 ${chunkSynthesis.index + 1} 块综合`,
+          chunkIndex: chunkSynthesis.index,
+          imageNames: relatedPages.map((page) => page.imageName),
+          images: this.getChunkRequestImages(chunkIndex, chunkImageLabels),
+          systemPrompt: CHUNK_SYNTHESIS_SYSTEM_PROMPT,
+          userPrompt: buildContextualChunkSynthesisPrompt(chunkSynthesis.index, relatedPages, {
+            previousChunk: chunkIndex > 0
+              ? {
+                  index: this.state.chunkSyntheses[chunkIndex - 1].index,
+                  title: this.state.chunkSyntheses[chunkIndex - 1].title,
+                  summary: this.state.chunkSyntheses[chunkIndex - 1].summary,
+                  continuitySummary: this.state.chunkSyntheses[chunkIndex - 1].continuitySummary,
+                }
+              : null,
+            previousPages: chunkIndex > 0
+              ? this.state.pageAnalyses.filter((page) => page.chunkIndex === chunkIndex - 1)
+              : [],
+            nextPages: this.state.pageAnalyses.filter((page) => page.chunkIndex === chunkIndex + 1),
+            includeChunkImages: true,
+          }),
+          temperature: SYNTHESIS_TEMPERATURE,
+          maxOutputTokens: SYNTHESIS_MAX_TOKENS,
+          timeoutMs: CHUNK_SYNTHESIS_TIMEOUT_MS,
+          userPromptPlacement: 'after-media',
+        },
+        parseChunkSynthesisResult
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!shouldFallbackChunkSynthesisToTextOnly(errorMessage)) {
+        throw error;
+      }
+
+      return requestTextOnlySynthesis();
+    }
   }
 
   private applyChunkSynthesisResult(

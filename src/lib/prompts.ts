@@ -763,6 +763,7 @@ export function buildContextualChunkSynthesisPrompt(
     previousChunk?: Pick<ChunkSynthesis, 'index' | 'title' | 'summary' | 'continuitySummary'> | null;
     previousPages?: PageAnalysis[];
     nextPages?: PageAnalysis[];
+    includeChunkImages?: boolean;
   }
 ): string {
   const continuityContext = {
@@ -783,8 +784,18 @@ export function buildContextualChunkSynthesisPrompt(
         }
       : null,
   };
+  const sourceGuidance = context?.includeChunkImages
+    ? [
+        'The original ordered images for this chunk are also attached in the same order as the page analyses.',
+        'Use the images to verify panel flow, action continuity, scene blocking, and visual details that may have been under-described in the page analyses.',
+        'If the current chunk images and the page-level analysis conflict, trust the current chunk images first, then use the analysis mainly for OCR/text extraction and continuity clues.',
+      ].join('\n')
+    : 'Use the page-level analysis as the source of truth for the current chunk.';
 
-  return `Below is the page-level analysis for chunk ${chunkIndex + 1}. Please synthesize only the current chunk into a stable chunk-level summary, but use the continuity context to make transitions cleaner and character state changes more coherent.
+  return `Below is the source material for chunk ${chunkIndex + 1}. Please synthesize only the current chunk into a stable chunk-level summary, but use the continuity context to make transitions cleaner and character state changes more coherent.
+
+Source guidance:
+${sourceGuidance}
 
 Current chunk page analyses:
 ${stringifyPromptData(pageAnalyses)}
@@ -797,6 +808,7 @@ Requirements:
 2. continuitySummary should emphasize what the next chunk must inherit: ending situation, unresolved tension, relationship shifts, location/time cues, and emotional state.
 3. If adjacent-chunk context conflicts with the current chunk pages, trust the current chunk pages first.
 4. Character names, roles, and relationships should stay consistent with the continuity context whenever the current chunk supports them.
+5. When chunk images are attached, use them to recover omitted visual beats and scene transitions instead of flattening the chunk into a brief restatement of the page analyses.
 
 Strictly output JSON:
 ${CHUNK_SYNTHESIS_OUTPUT_SCHEMA}`;
