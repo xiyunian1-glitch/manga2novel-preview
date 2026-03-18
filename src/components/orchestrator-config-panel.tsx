@@ -84,6 +84,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
             />
             <p className="text-xs text-muted-foreground">
               系统会把上传图片按顺序尽量平均切成这些部分，每部分单独生成草稿，最后再合成完整正文。
+              还原原著优先时，建议把分段数调高一些；分得越粗，越容易被压成概述。
             </p>
           </div>
         ) : (
