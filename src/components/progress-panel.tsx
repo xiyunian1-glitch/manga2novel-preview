@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   CheckCircle,
@@ -451,7 +451,11 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   const [selectedStage, setSelectedStage] = useState<RequestStage | null>(null);
   const [selectedItem, setSelectedItem] = useState<ProgressItem | null>(null);
   const [regeneratingKey, setRegeneratingKey] = useState<string | null>(null);
+  const [anchoredItemKey, setAnchoredItemKey] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const pendingRestoreScrollTopRef = useRef<number | null>(null);
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     if (!selectedStage) {
@@ -513,11 +517,56 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
   const currentErrorItem = items.find((item) => item.status === 'error' && item.error);
   const currentErrorAdvice = currentErrorItem?.error ? getTroubleshootingAdvice(currentErrorItem.error) : null;
 
+  useEffect(() => {
+    if (!anchoredItemKey) {
+      return;
+    }
+
+    if (!items.some((item) => item.key === anchoredItemKey)) {
+      setAnchoredItemKey(null);
+    }
+  }, [anchoredItemKey, items]);
+
+  useEffect(() => {
+    if (pendingRestoreScrollTopRef.current === null) {
+      return;
+    }
+
+    const nextScrollTop = pendingRestoreScrollTopRef.current;
+    const restoreId = window.requestAnimationFrame(() => {
+      if (listScrollRef.current && nextScrollTop !== null) {
+        listScrollRef.current.scrollTop = nextScrollTop;
+      }
+      pendingRestoreScrollTopRef.current = null;
+    });
+
+    return () => window.cancelAnimationFrame(restoreId);
+  }, [items, regeneratingKey]);
+
+  useEffect(() => {
+    if (!anchoredItemKey || regeneratingKey) {
+      return;
+    }
+
+    const target = itemRefs.current[anchoredItemKey];
+    if (!target) {
+      return;
+    }
+
+    const scrollId = window.requestAnimationFrame(() => {
+      target.scrollIntoView({ block: 'nearest' });
+    });
+
+    return () => window.cancelAnimationFrame(scrollId);
+  }, [anchoredItemKey, items, regeneratingKey]);
+
   const handleRegenerate = async (item: ProgressItem) => {
     if (!onRegenerateItem || item.itemIndex < 0) {
       return;
     }
 
+    pendingRestoreScrollTopRef.current = listScrollRef.current?.scrollTop ?? null;
+    setAnchoredItemKey(item.key);
     setRegeneratingKey(item.key);
     try {
       await onRegenerateItem(item.stage, item.itemIndex);
@@ -595,14 +644,27 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
               </div>
             </div>
           </div>
-          <div className="max-h-[min(460px,calc(100vh-19rem))] overflow-y-auto overscroll-contain">
+          <div
+            ref={listScrollRef}
+            className="max-h-[min(460px,calc(100vh-19rem))] overflow-y-auto overscroll-contain"
+          >
             <div className={useDenseListLayout ? 'space-y-2 p-2.5' : 'space-y-2.5 p-3'}>
               {items.length === 0 ? (
                 <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground">
                   当前阶段还没有可展示的内容。
                 </div>
               ) : items.map((item) => (
-                <div key={item.key} className={useDenseListLayout ? 'rounded-lg border p-2.5' : 'rounded-xl border p-3'}>
+                <div
+                  key={item.key}
+                  ref={(node) => {
+                    itemRefs.current[item.key] = node;
+                  }}
+                  className={
+                    useDenseListLayout
+                      ? `rounded-lg border p-2.5 ${anchoredItemKey === item.key ? 'border-primary bg-primary/5' : ''}`
+                      : `rounded-xl border p-3 ${anchoredItemKey === item.key ? 'border-primary bg-primary/5' : ''}`
+                  }
+                >
                   <div className={useDenseListLayout ? 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between' : 'flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between'}>
                     <div className={useDenseListLayout ? 'min-w-0 flex-1 space-y-0.5' : 'min-w-0 flex-1 space-y-1'}>
                       <div className="flex flex-wrap items-center gap-2">
