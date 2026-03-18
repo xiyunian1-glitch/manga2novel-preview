@@ -1211,6 +1211,14 @@ function resetTrackedRuntime(target: RuntimeTracked) {
   target.runtimeStartedAt = undefined;
 }
 
+function hasRetryableSkippedError(error?: string): boolean {
+  return Boolean(String(error || '').trim());
+}
+
+function isTerminalChunkStatus(status: ChunkStatus, error?: string): boolean {
+  return status === 'success' || (status === 'skipped' && !hasRetryableSkippedError(error));
+}
+
 interface ModelRequest {
   stage: RequestStage;
   itemLabel: string;
@@ -2534,7 +2542,7 @@ export class TaskOrchestrator {
   private findNextPendingPageAnalysisBatchIndex(startBatchIndex = 0): number {
     for (let batchIndex = Math.max(0, startBatchIndex); batchIndex < this.getAnalysisBatchCount(); batchIndex += 1) {
       const pages = this.getPageAnalysesForAnalysisBatch(batchIndex);
-      if (pages.some((page) => page.status !== 'success' && page.status !== 'skipped')) {
+      if (pages.some((page) => !isTerminalChunkStatus(page.status, page.error))) {
         return batchIndex;
       }
     }
@@ -2550,7 +2558,7 @@ export class TaskOrchestrator {
   private findNextPendingChunkSynthesisIndex(startIndex = 0): number {
     for (let index = Math.max(0, startIndex); index < this.state.chunkSyntheses.length; index += 1) {
       const chunk = this.state.chunkSyntheses[index];
-      if (chunk.status !== 'success' && chunk.status !== 'skipped') {
+      if (!isTerminalChunkStatus(chunk.status, chunk.error)) {
         return index;
       }
     }
@@ -2566,7 +2574,7 @@ export class TaskOrchestrator {
   private findNextPendingSectionIndex(startIndex = 0): number {
     for (let index = Math.max(0, startIndex); index < this.state.novelSections.length; index += 1) {
       const section = this.state.novelSections[index];
-      if (section.status !== 'success' && section.status !== 'skipped') {
+      if (!isTerminalChunkStatus(section.status, section.error)) {
         return index;
       }
     }
@@ -2784,7 +2792,7 @@ export class TaskOrchestrator {
 
     for (let batchIndex = Math.max(0, startBatchIndex); batchIndex <= lastBatchIndex; batchIndex += 1) {
       const pages = state.pageAnalyses.filter((page) => page.analysisBatchIndex === batchIndex);
-      if (pages.some((page) => page.status !== 'success' && page.status !== 'skipped')) {
+      if (pages.some((page) => !isTerminalChunkStatus(page.status, page.error))) {
         return batchIndex;
       }
     }
@@ -2795,7 +2803,7 @@ export class TaskOrchestrator {
   private findNextPendingChunkSynthesisIndexForState(state: TaskState, startIndex = 0): number {
     for (let index = Math.max(0, startIndex); index < state.chunkSyntheses.length; index += 1) {
       const chunk = state.chunkSyntheses[index];
-      if (chunk.status !== 'success' && chunk.status !== 'skipped') {
+      if (!isTerminalChunkStatus(chunk.status, chunk.error)) {
         return index;
       }
     }
@@ -2806,7 +2814,7 @@ export class TaskOrchestrator {
   private findNextPendingSectionIndexForState(state: TaskState, startIndex = 0): number {
     for (let index = Math.max(0, startIndex); index < state.novelSections.length; index += 1) {
       const section = state.novelSections[index];
-      if (section.status !== 'success' && section.status !== 'skipped') {
+      if (!isTerminalChunkStatus(section.status, section.error)) {
         return index;
       }
     }
@@ -3271,6 +3279,7 @@ export class TaskOrchestrator {
     }
 
     if (this.state.currentStage === 'analyze-pages') {
+      this.state.currentChunkIndex = this.getResumePageAnalysisBatchIndex(this.state.currentChunkIndex);
       const completed = await this.runPageAnalysisStage();
       if (!completed) {
         return;
@@ -3281,6 +3290,7 @@ export class TaskOrchestrator {
     }
 
     if (this.state.currentStage === 'synthesize-chunks') {
+      this.state.currentChunkIndex = this.getResumeChunkSynthesisIndex(this.state.currentChunkIndex);
       const completed = await this.runChunkSynthesisStage();
       if (!completed) {
         return;
@@ -3301,6 +3311,7 @@ export class TaskOrchestrator {
     }
 
     if (this.state.currentStage === 'write-sections') {
+      this.state.currentChunkIndex = this.getResumeSectionIndex(this.state.currentChunkIndex);
       const completed = await this.runSectionWritingStage();
       if (!completed) {
         return;
@@ -3344,7 +3355,7 @@ export class TaskOrchestrator {
 
     for (let batchIndex = this.state.currentChunkIndex; batchIndex < analysisBatchCount; batchIndex += 1) {
       const batchPages = this.getPageAnalysesForAnalysisBatch(batchIndex);
-      if (batchPages.length === 0 || batchPages.every((page) => page.status === 'success' || page.status === 'skipped')) {
+      if (batchPages.length === 0 || batchPages.every((page) => isTerminalChunkStatus(page.status, page.error))) {
         continue;
       }
       pendingBatchIndexes.push(batchIndex);
@@ -3369,7 +3380,7 @@ export class TaskOrchestrator {
 
         const batchIndex = pendingBatchIndexes[queueIndex];
         const batchPages = this.getPageAnalysesForAnalysisBatch(batchIndex);
-        if (batchPages.length === 0 || batchPages.every((page) => page.status === 'success' || page.status === 'skipped')) {
+        if (batchPages.length === 0 || batchPages.every((page) => isTerminalChunkStatus(page.status, page.error))) {
           continue;
         }
 
@@ -3441,6 +3452,15 @@ export class TaskOrchestrator {
       return false;
     }
 
+    const nextPendingBatchIndex = this.findNextPendingPageAnalysisBatchIndex(0);
+    if (nextPendingBatchIndex !== -1) {
+      this.stopRuntimeTracking();
+      this.state.status = 'paused';
+      this.state.currentChunkIndex = nextPendingBatchIndex;
+      this.emit('paused');
+      return false;
+    }
+
     return true;
   }
 
@@ -3455,7 +3475,7 @@ export class TaskOrchestrator {
       }
 
       const chunkSynthesis = this.state.chunkSyntheses[index];
-      if (chunkSynthesis.status === 'success' || chunkSynthesis.status === 'skipped') {
+      if (isTerminalChunkStatus(chunkSynthesis.status, chunkSynthesis.error)) {
         continue;
       }
 
@@ -3504,6 +3524,15 @@ export class TaskOrchestrator {
       }
     }
 
+    const nextPendingChunkIndex = this.findNextPendingChunkSynthesisIndex(0);
+    if (nextPendingChunkIndex !== -1) {
+      this.stopRuntimeTracking();
+      this.state.status = 'paused';
+      this.state.currentChunkIndex = nextPendingChunkIndex;
+      this.emit('paused');
+      return false;
+    }
+
     return true;
   }
 
@@ -3515,7 +3544,7 @@ export class TaskOrchestrator {
       return false;
     }
 
-    if (this.state.globalSynthesis.status === 'success' || this.state.globalSynthesis.status === 'skipped') {
+    if (isTerminalChunkStatus(this.state.globalSynthesis.status, this.state.globalSynthesis.error)) {
       if (!this.state.globalSynthesis.outlineConfirmed && !this.isSplitDraftMode()) {
         this.stopRuntimeTracking();
         this.state.status = 'paused';
@@ -3595,9 +3624,6 @@ export class TaskOrchestrator {
       this.state.globalSynthesis.error = errorMessage;
       if (this.shouldAutoSkipOnError()) {
         this.applySkippedStorySynthesis(errorMessage);
-        if (this.isSplitDraftMode()) {
-          return true;
-        }
         this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentStage = 'synthesize-story';
@@ -3650,7 +3676,7 @@ export class TaskOrchestrator {
       }
 
       const section = this.state.novelSections[index];
-      if (section.status === 'success' || section.status === 'skipped') {
+      if (isTerminalChunkStatus(section.status, section.error)) {
         continue;
       }
 
@@ -3752,6 +3778,15 @@ export class TaskOrchestrator {
       }
     }
 
+    const nextPendingSectionIndex = this.findNextPendingSectionIndex(0);
+    if (nextPendingSectionIndex !== -1) {
+      this.stopRuntimeTracking();
+      this.state.status = 'paused';
+      this.state.currentChunkIndex = nextPendingSectionIndex;
+      this.emit('paused');
+      return false;
+    }
+
     return true;
   }
 
@@ -3764,7 +3799,7 @@ export class TaskOrchestrator {
       return false;
     }
 
-    if (this.state.finalPolish.status === 'success' || this.state.finalPolish.status === 'skipped') {
+    if (isTerminalChunkStatus(this.state.finalPolish.status, this.state.finalPolish.error)) {
       this.refreshFullNovel();
       return true;
     }
@@ -3794,7 +3829,11 @@ export class TaskOrchestrator {
         this.applySkippedFinalPolish(errorMessage);
         this.emit('chunk-error', 0, errorMessage);
         this.emit('chunk-skip', 0);
-        return true;
+        this.stopRuntimeTracking();
+        this.state.status = 'paused';
+        this.state.currentChunkIndex = 0;
+        this.emit('paused');
+        return false;
       }
       this.stopRuntimeTracking();
       this.state.status = 'paused';

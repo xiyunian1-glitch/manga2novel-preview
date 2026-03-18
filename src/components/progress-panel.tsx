@@ -58,8 +58,12 @@ function isSplitDraftMode(taskState: TaskState): boolean {
   return taskState.config.workflowMode === 'split-draft';
 }
 
-function countCompleted(items: Array<{ status: ChunkStatus }>): number {
-  return items.filter((item) => item.status === 'success' || item.status === 'skipped').length;
+function isCompletedStatus(status: ChunkStatus, error?: string): boolean {
+  return status === 'success' || (status === 'skipped' && !String(error || '').trim());
+}
+
+function countCompleted(items: Array<{ status: ChunkStatus; error?: string }>): number {
+  return items.filter((item) => isCompletedStatus(item.status, item.error)).length;
 }
 
 function statusLabel(status: ChunkStatus): string {
@@ -490,17 +494,17 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
     + (taskState.config.enableFinalPolish ? 1 : 0);
   const completedUnits = (includePageStage ? countCompleted(taskState.pageAnalyses) : 0)
     + countCompleted(taskState.chunkSyntheses)
-    + (taskState.globalSynthesis.status === 'success' || taskState.globalSynthesis.status === 'skipped' ? 1 : 0)
+    + (isCompletedStatus(taskState.globalSynthesis.status, taskState.globalSynthesis.error) ? 1 : 0)
     + (
       taskState.novelSections.length > 0
-      && (taskState.writingPreparation.status === 'success' || taskState.writingPreparation.status === 'skipped')
+      && isCompletedStatus(taskState.writingPreparation.status, taskState.writingPreparation.error)
         ? 1
         : 0
     )
     + countCompleted(taskState.novelSections)
     + (
       taskState.config.enableFinalPolish
-      && (taskState.finalPolish.status === 'success' || taskState.finalPolish.status === 'skipped')
+      && isCompletedStatus(taskState.finalPolish.status, taskState.finalPolish.error)
         ? 1
         : 0
     );
