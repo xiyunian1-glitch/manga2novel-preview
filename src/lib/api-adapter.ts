@@ -166,6 +166,46 @@ function getProviderDisplayName(config: Pick<APIConfig, 'provider' | 'providerLa
   return config.providerLabel?.trim() || PROVIDER_DISPLAY_NAMES[config.provider];
 }
 
+function isDeepSeekOfficialCompatibleConfig(config: Pick<APIConfig, 'provider' | 'baseUrl' | 'model' | 'providerLabel'>): boolean {
+  if (config.provider !== 'compatible') {
+    return false;
+  }
+
+  const normalizedBaseUrl = normalizeBaseUrl(config.baseUrl, DEFAULT_COMPATIBLE_BASE_URL).toLowerCase();
+  const providerLabel = String(config.providerLabel || '').trim().toLowerCase();
+  const model = String(config.model || '').trim().toLowerCase();
+
+  return normalizedBaseUrl.includes('api.deepseek.com')
+    || providerLabel === 'deepseek'
+    || model === 'deepseek-chat'
+    || model === 'deepseek-reasoner';
+}
+
+function buildDeepSeekImageUnsupportedError(config: Pick<APIConfig, 'model'>): Error {
+  const modelLabel = config.model.trim() || '当前模型';
+  return new Error(
+    `DeepSeek 官方接口当前不支持图片消息：${modelLabel} 无法接收 image_url。`
+    + ' 请把含图片的阶段改用支持视觉输入的模型'
+    + '（例如 Gemini，或其它支持图片输入的兼容模型），'
+    + ' DeepSeek 可以继续只用于后面的纯文本阶段。'
+  );
+}
+
+function rewriteCompatibleRequestError(config: APIConfig, error: unknown): Error {
+  if (error instanceof Error) {
+    if (
+      isDeepSeekOfficialCompatibleConfig(config)
+      && /unknown variant [`"]image_url[`"]|expected [`"]text[`"]|image_url/i.test(error.message)
+    ) {
+      return buildDeepSeekImageUnsupportedError(config);
+    }
+
+    return error;
+  }
+
+  return new Error(String(error));
+}
+
 function usesOpenRouterHeaders(url: string): boolean {
   try {
     return new URL(url).origin === new URL(LEGACY_OPENROUTER_BASE_URL).origin;
@@ -218,6 +258,10 @@ function isRemoteBrowserSession(): boolean {
   return typeof window !== 'undefined' && !isLocalBrowserSession();
 }
 
+function canUseLocalProxyInBrowser(): boolean {
+  return typeof window !== 'undefined';
+}
+
 function isLocalBrowserSession(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -228,7 +272,7 @@ function isLocalBrowserSession(): boolean {
 }
 
 function shouldAttemptLocalProxy(url: string): boolean {
-  if (!isLocalBrowserSession()) {
+  if (!canUseLocalProxyInBrowser()) {
     return false;
   }
 
@@ -324,7 +368,7 @@ function extractPortFromProxyEndpoint(proxyEndpoint: string | null): number | nu
 }
 
 export async function detectLocalProxyStatus(): Promise<LocalProxyStatus> {
-  if (!isLocalBrowserSession()) {
+  if (!canUseLocalProxyInBrowser()) {
     return {
       isLocalSession: false,
       available: false,
@@ -382,23 +426,6 @@ async function tryFetchViaLocalProxy(url: string, init: RequestInit): Promise<Re
 }
 
 async function fetchWithDiagnostics(url: string, init: RequestInit, context: string): Promise<Response> {
-  let lastProxyError: Error | null = null;
-
-  if (shouldAttemptLocalProxy(url)) {
-    try {
-      const proxiedResponse = await tryFetchViaLocalProxy(url, init);
-      if (proxiedResponse) {
-        return proxiedResponse;
-      }
-    } catch (proxyError) {
-      if (isAbortError(proxyError)) {
-        throw proxyError;
-      }
-
-      lastProxyError = proxyError instanceof Error ? proxyError : new Error(String(proxyError));
-    }
-  }
-
   try {
     return await fetch(url, init);
   } catch (directError) {
@@ -407,6 +434,21 @@ async function fetchWithDiagnostics(url: string, init: RequestInit, context: str
     }
 
     if (shouldAttemptLocalProxy(url)) {
+      let lastProxyError: Error | null = null;
+
+      try {
+        const proxiedResponse = await tryFetchViaLocalProxy(url, init);
+        if (proxiedResponse) {
+          return proxiedResponse;
+        }
+      } catch (proxyError) {
+        if (isAbortError(proxyError)) {
+          throw proxyError;
+        }
+
+        lastProxyError = proxyError instanceof Error ? proxyError : new Error(String(proxyError));
+      }
+
       throw formatProxyFetchFailure(context, url, directError, lastProxyError);
     }
 
@@ -966,6 +1008,10 @@ async function callCompatibleText(
   options: GenerationOptions,
   signal?: AbortSignal
 ): Promise<string> {
+  if (images.length > 0 && isDeepSeekOfficialCompatibleConfig(config)) {
+    throw buildDeepSeekImageUnsupportedError(config);
+  }
+
   const providerDisplayName = getProviderDisplayName(config);
   const imageContents = images.map((img) => ({
     type: 'image_url' as const,
@@ -1030,7 +1076,11 @@ async function callCompatibleText(
     return rawText;
   };
 
-  return requestText(options.responseMimeType === 'application/json');
+  try {
+    return await requestText(options.responseMimeType === 'application/json');
+  } catch (error) {
+    throw rewriteCompatibleRequestError(config, error);
+  }
 }
 
 async function callGeminiText(
