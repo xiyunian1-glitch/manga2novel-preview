@@ -183,7 +183,14 @@ export function ImageUploadPanel({
           漫画图片
           <Badge variant="secondary" className="ml-auto">{images.length} 张</Badge>
           {images.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={onClear} disabled={disabled} className="h-7 px-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClear}
+              disabled={disabled}
+              className="h-7 px-2"
+              data-action="clear-images"
+            >
               <Trash2 className="h-3 w-3 mr-1" />
               清空
             </Button>
@@ -219,13 +226,27 @@ export function ImageUploadPanel({
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
-            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={openFilePicker}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled}
+              onClick={openFilePicker}
+              data-action="upload-images"
+            >
               <ImagePlus className="h-3.5 w-3.5 mr-1" />
               上传图片
             </Button>
-            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => {
-              void openFolderPicker();
-            }}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled}
+              onClick={() => {
+                void openFolderPicker();
+              }}
+              data-action="upload-folder"
+            >
               <FolderOpen className="h-3.5 w-3.5 mr-1" />
               上传文件夹
             </Button>
@@ -238,6 +259,7 @@ export function ImageUploadPanel({
             className="hidden"
             onChange={(e) => handleFiles(e.target.files)}
             disabled={disabled}
+            data-input="image-upload"
           />
           <input
             ref={folderInputRef}
@@ -246,6 +268,7 @@ export function ImageUploadPanel({
             className="hidden"
             onChange={(e) => handleFiles(e.target.files)}
             disabled={disabled}
+            data-input="folder-upload"
           />
         </div>
 
