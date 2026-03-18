@@ -165,9 +165,23 @@ export interface StorySynthesis {
   retryCount: number;
 }
 
+export interface WritingPreparation {
+  status: ChunkStatus;
+  voiceGuide: string;
+  error?: string;
+  retryCount: number;
+}
+
+export type FinalPolishPhase = 'idle' | 'build-voice-guide' | 'polish-sections' | 'complete';
+
 export interface FinalPolish {
   status: ChunkStatus;
   markdownBody?: string;
+  voiceGuide?: string;
+  polishedSectionBodies: string[];
+  currentSectionIndex: number;
+  totalSections: number;
+  phase: FinalPolishPhase;
   error?: string;
   retryCount: number;
 }
@@ -213,7 +227,7 @@ export interface LastAIRequestAttempt {
   sentAt: string;
   finishedAt?: string;
   maxOutputTokens?: number;
-  outcome: 'success' | 'error';
+  outcome: 'running' | 'success' | 'error';
   error?: string;
   nextAction?: string;
 }
@@ -245,6 +259,7 @@ export interface TaskState {
   pageAnalyses: PageAnalysis[];
   chunkSyntheses: ChunkSynthesis[];
   globalSynthesis: StorySynthesis;
+  writingPreparation: WritingPreparation;
   novelSections: NovelSection[];
   finalPolish: FinalPolish;
   memory: MemoryState;
@@ -399,8 +414,18 @@ export const DEFAULT_STORY_SYNTHESIS: StorySynthesis = {
   retryCount: 0,
 };
 
+export const DEFAULT_WRITING_PREPARATION: WritingPreparation = {
+  status: 'pending',
+  voiceGuide: '',
+  retryCount: 0,
+};
+
 export const DEFAULT_FINAL_POLISH: FinalPolish = {
   status: 'pending',
+  polishedSectionBodies: [],
+  currentSectionIndex: 0,
+  totalSections: 0,
+  phase: 'idle',
   retryCount: 0,
 };
 
