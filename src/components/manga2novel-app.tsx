@@ -708,7 +708,7 @@ export default function Manga2NovelApp() {
               disabled={isRunning}
             />
 
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
               <ImageUploadPanel
                 images={images}
                 onAdd={addImages}

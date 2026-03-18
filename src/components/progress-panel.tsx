@@ -523,7 +523,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
           </div>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
           {stageCards.map((card) => (
             <button
               key={card.stage}
@@ -565,8 +565,8 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
               ) : items.map((item) => (
                 <div key={item.key} className={useCompactChunkCards ? 'rounded-xl border p-2.5' : 'rounded-xl border p-3'}>
                   <div className={useCompactChunkCards ? 'flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between' : 'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'}>
-                    <div className={useCompactChunkCards ? 'min-w-0 space-y-0.5' : 'min-w-0 space-y-1'}>
-                      <div className="flex items-center gap-2">
+                    <div className={useCompactChunkCards ? 'min-w-0 flex-1 space-y-0.5' : 'min-w-0 flex-1 space-y-1'}>
+                      <div className="flex flex-wrap items-center gap-2">
                         <StatusIcon status={item.status} />
                         <span className="font-medium">{item.label}</span>
                         <Badge variant="outline">{statusLabel(item.status)}</Badge>
@@ -580,7 +580,7 @@ export function ProgressPanel({ taskState, onRegenerateItem }: ProgressPanelProp
                         {item.preview}
                       </div>
                     </div>
-                    <div className="flex shrink-0 gap-2">
+                    <div className="flex shrink-0 flex-wrap gap-2">
                       <Button
                         size="sm"
                         variant="outline"
