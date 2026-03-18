@@ -179,7 +179,8 @@ function buildPageAnalysisPrompt(
     '6. Preserve visible text as faithfully as possible in `dialogue`, `narrationText`, and `visualText`.',
     '7. If a speaker is uncertain, use `未确认`. If location or time is uncertain, use `未知`.',
     '8. If text is occluded, cropped, or blurry, omit it instead of guessing.',
-    '9. Keep JSON string values single-line. Escape line breaks as `\\n`.',
+    '9. If Chinese and Japanese appear together, keep the Chinese and drop the Japanese; if the Japanese part is a sound effect, convert it into natural Chinese onomatopoeia instead of keeping the original kana.',
+    '10. Keep JSON string values single-line. Escape line breaks as `\\n`.',
     '',
     '[Target pages in order]',
     JSON.stringify(pageList, null, 2),
@@ -261,9 +262,39 @@ function stripCitationMarkers(text: string): string {
     .trim();
 }
 
-function stripJapaneseKanaFragments(text: string): string {
+const JAPANESE_KANA_PATTERN = /[ぁ-ゟ゠-ヿｦ-ﾟー]/u;
+const JAPANESE_KANA_GLOBAL_PATTERN = /[ぁ-ゟ゠-ヿｦ-ﾟー]+/gu;
+const HAN_CHARACTER_PATTERN = /[\p{Script=Han}]/u;
+const JAPANESE_SOUND_EFFECT_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /ゴゴゴ+/gu, replacement: '轰隆隆' },
+  { pattern: /ドキドキ/gu, replacement: '怦怦' },
+  { pattern: /バクバク/gu, replacement: '怦怦直跳' },
+  { pattern: /ガタガタ/gu, replacement: '哆嗦' },
+  { pattern: /ガタン|ガタッ/gu, replacement: '咣当' },
+  { pattern: /ガチャ|カチャ/gu, replacement: '咔哒' },
+  { pattern: /バタン/gu, replacement: '砰地' },
+  { pattern: /ドーン|ドン|どん/gu, replacement: '咚' },
+  { pattern: /バン/gu, replacement: '砰' },
+  { pattern: /ガン/gu, replacement: '哐' },
+  { pattern: /ピタッ|ぴたっ/gu, replacement: '一下停住' },
+  { pattern: /ピクピク|ぴくぴく/gu, replacement: '轻轻抽动' },
+  { pattern: /ピクッ|ぴくっ/gu, replacement: '轻轻一颤' },
+  { pattern: /ビクッ|びくっ/gu, replacement: '猛地一颤' },
+  { pattern: /ゾクッ|ぞくっ/gu, replacement: '一阵战栗' },
+  { pattern: /ギュッ|ぎゅっ/gu, replacement: '紧紧' },
+  { pattern: /ゴクリ|ごくり|ゴクン|ごくん/gu, replacement: '咕咚' },
+  { pattern: /チュッ|ちゅっ|チュ|ちゅ/gu, replacement: '啾' },
+  { pattern: /ペロペロ|ぺろぺろ/gu, replacement: '舔舐声' },
+  { pattern: /ペロ|ぺろ/gu, replacement: '轻舔' },
+  { pattern: /クチュクチュ|くちゅくちゅ/gu, replacement: '黏腻水声' },
+  { pattern: /クチュ|くちゅ/gu, replacement: '黏腻水声' },
+  { pattern: /ジュル|じゅる/gu, replacement: '吮吸声' },
+  { pattern: /ヌル|ぬる/gu, replacement: '黏滑' },
+  { pattern: /トロ|とろ/gu, replacement: '黏软' },
+];
+
+function normalizeTextAfterJapaneseCleanup(text: string): string {
   return text
-    .replace(/[ぁ-ゟ゠-ヿｦ-ﾟー]+/gu, '')
     .replace(/[“”"'`「」『』（）()【】\[\]《》〈〉]\s*[“”"'`「」『』（）()【】\[\]《》〈〉]/g, '')
     .replace(/(^|[\n（(【\[「『《〈])([，。！？；：、,.!?;:~〜…]+)/g, '$1')
     .replace(/([，。！？；：、,.!?;:~〜…])(?:\s*\1)+/g, '$1')
@@ -276,11 +307,45 @@ function stripJapaneseKanaFragments(text: string): string {
     .trim();
 }
 
+function convertJapaneseSoundEffects(text: string): string {
+  return JAPANESE_SOUND_EFFECT_REPLACEMENTS.reduce((result, entry) => (
+    result.replace(entry.pattern, entry.replacement)
+  ), text);
+}
+
+function stripJapaneseKanaFragments(text: string): string {
+  return normalizeTextAfterJapaneseCleanup(text.replace(JAPANESE_KANA_GLOBAL_PATTERN, ''));
+}
+
 function sanitizeNarrativeText(value: string | undefined): string {
-  return stripJapaneseKanaFragments(stripCitationMarkers(stripCodeFence(String(value || ''))))
+  return stripJapaneseKanaFragments(convertJapaneseSoundEffects(stripCitationMarkers(stripCodeFence(String(value || '')))))
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function sanitizePageVisibleText(value: string | undefined): string {
+  const normalized = stripCitationMarkers(stripCodeFence(String(value || '')));
+  if (!normalized) {
+    return '';
+  }
+
+  const converted = convertJapaneseSoundEffects(normalized);
+  const shouldStripJapanese = HAN_CHARACTER_PATTERN.test(converted) && JAPANESE_KANA_PATTERN.test(converted);
+  const cleaned = shouldStripJapanese
+    ? stripJapaneseKanaFragments(converted)
+    : normalizeTextAfterJapaneseCleanup(converted);
+
+  return cleaned
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function sanitizePageVisibleTextArray(value: unknown): string[] {
+  return toStringArray(value)
+    .map((item) => sanitizePageVisibleText(item))
+    .filter(Boolean);
 }
 
 function sanitizeNarrativeArray(value: unknown): string[] {
@@ -419,11 +484,11 @@ function splitFinalPolishDraft(text: string): string[] | null {
 function normalizeCharacterCue(value: unknown): CharacterCue {
   const record = isRecord(value) ? value : {};
   return {
-    name: toString(record.name, '未知角色'),
-    role: toString(record.role, '未说明'),
-    traits: toStringArray(record.traits),
-    relationshipHints: toStringArray(record.relationshipHints),
-    evidence: toStringArray(record.evidence),
+    name: sanitizePageVisibleText(toString(record.name)) || '未知角色',
+    role: sanitizeNarrativeText(toString(record.role)) || '未说明',
+    traits: sanitizeNarrativeArray(record.traits),
+    relationshipHints: sanitizeNarrativeArray(record.relationshipHints),
+    evidence: sanitizePageVisibleTextArray(record.evidence),
   };
 }
 
@@ -431,7 +496,7 @@ function normalizeDialogueLine(value: unknown): DialogueLine {
   if (typeof value === 'string') {
     return {
       speaker: '未确认',
-      text: value.trim(),
+      text: sanitizePageVisibleText(value),
     };
   }
 
@@ -445,9 +510,9 @@ function normalizeDialogueLine(value: unknown): DialogueLine {
   })();
 
   return {
-    speaker: toString(record.speaker, '未确认'),
-    text: toString(record.text),
-    speakerEvidence: toString(record.speakerEvidence ?? record.speaker_evidence),
+    speaker: sanitizePageVisibleText(toString(record.speaker)) || '未确认',
+    text: sanitizePageVisibleText(toString(record.text)),
+    speakerEvidence: sanitizePageVisibleText(toString(record.speakerEvidence ?? record.speaker_evidence)),
     speakerConfidence,
   };
 }
@@ -621,14 +686,14 @@ function normalizePageAnalysisResult(value: unknown, fallbackPageNumber: number)
 
   return {
     pageNumber: parsedPageNumber ?? fallbackPageNumber,
-    summary: toString(parsed.summary),
-    location: toString(parsed.location, '未知'),
-    timeHint: toString(parsed.timeHint, '未知'),
-    keyEvents: toStringArray(parsed.keyEvents),
+    summary: sanitizeNarrativeText(toString(parsed.summary)),
+    location: sanitizeNarrativeText(toString(parsed.location, '未知')) || '未知',
+    timeHint: sanitizeNarrativeText(toString(parsed.timeHint, '未知')) || '未知',
+    keyEvents: sanitizeNarrativeArray(parsed.keyEvents),
     characters: normalizedCharacters,
     dialogue: normalizedDialogue,
-    narrationText: toStringArray(parsed.narrationText ?? parsed.narration_text),
-    visualText: toStringArray(parsed.visualText ?? parsed.visual_text),
+    narrationText: sanitizePageVisibleTextArray(parsed.narrationText ?? parsed.narration_text),
+    visualText: sanitizePageVisibleTextArray(parsed.visualText ?? parsed.visual_text),
   };
 }
 
