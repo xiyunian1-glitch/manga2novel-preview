@@ -1,6 +1,8 @@
 import type { AIResponse, APIConfig, ModelOption } from './types';
 import {
+  DEFAULT_GEMINI_BASE_URL,
   DEFAULT_COMPATIBLE_BASE_URL,
+  GEMINI_ROOT_BASE_URL,
   LEGACY_OPENROUTER_BASE_URL,
   PROVIDER_DISPLAY_NAMES,
 } from './types';
@@ -157,11 +159,30 @@ function normalizeBaseUrl(baseUrl: string | undefined, fallback: string): string
   return candidate.replace(/\/+$/, '');
 }
 
+function normalizeGeminiBaseUrl(baseUrl: string | undefined): string {
+  const candidate = normalizeBaseUrl(baseUrl, DEFAULT_GEMINI_BASE_URL);
+
+  try {
+    const parsedUrl = new URL(candidate);
+    const normalizedPath = parsedUrl.pathname.replace(/\/+$/, '');
+
+    if (parsedUrl.origin.toLowerCase() === GEMINI_ROOT_BASE_URL && !normalizedPath) {
+      return DEFAULT_GEMINI_BASE_URL;
+    }
+  } catch {
+    if (candidate.toLowerCase() === GEMINI_ROOT_BASE_URL) {
+      return DEFAULT_GEMINI_BASE_URL;
+    }
+  }
+
+  return candidate;
+}
+
 function getProviderBaseUrl(config: Pick<APIConfig, 'provider' | 'baseUrl'>): string {
   if (config.provider === 'compatible') {
     return normalizeBaseUrl(config.baseUrl, DEFAULT_COMPATIBLE_BASE_URL);
   }
-  return normalizeBaseUrl(config.baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
+  return normalizeGeminiBaseUrl(config.baseUrl);
 }
 
 function getProviderDisplayName(config: Pick<APIConfig, 'provider' | 'providerLabel'>): string {
@@ -1016,7 +1037,7 @@ async function fetchGeminiModels(
     throw new Error(`${providerLabel} requires an API key before fetching models.`);
   }
 
-  const url = `${normalizeBaseUrl(baseUrl, 'https://generativelanguage.googleapis.com/v1beta')}/models?key=${apiKey}`;
+  const url = `${normalizeGeminiBaseUrl(baseUrl)}/models?key=${apiKey}`;
   const response = await fetchWithDiagnostics(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },

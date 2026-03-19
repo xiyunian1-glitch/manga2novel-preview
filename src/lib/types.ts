@@ -465,6 +465,8 @@ export const WORKFLOW_MODE_LABELS: Record<WorkflowMode, string> = {
 };
 
 export const DEFAULT_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
+export const GEMINI_ROOT_BASE_URL = 'https://generativelanguage.googleapis.com';
+export const DEFAULT_GEMINI_BASE_URL = `${GEMINI_ROOT_BASE_URL}/v1beta`;
 export const LEGACY_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 export const COMPATIBLE_MODELS: ModelOption[] = [

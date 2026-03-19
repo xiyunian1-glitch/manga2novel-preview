@@ -18,12 +18,14 @@ import {
   DEFAULT_COMPATIBLE_BASE_URL,
   DEFAULT_CREATIVE_SETTINGS,
   DEFAULT_FINAL_POLISH,
+  DEFAULT_GEMINI_BASE_URL,
   DEFAULT_ORCHESTRATOR_CONFIG,
   DEFAULT_MEMORY_STATE,
   DEFAULT_STAGE_API_OVERRIDES,
   DEFAULT_STAGE_MODELS,
   DEFAULT_STORY_SYNTHESIS,
   DEFAULT_WRITING_PREPARATION,
+  GEMINI_ROOT_BASE_URL,
   getEnabledRequestStages,
   LEGACY_OPENROUTER_BASE_URL,
   PROVIDER_DISPLAY_NAMES,
@@ -111,8 +113,27 @@ function normalizeBaseUrl(
   baseUrl: string | null | undefined,
   legacyProvider?: APIConfig['provider'] | 'openrouter' | null
 ): string {
-  const normalizedBaseUrl = baseUrl?.trim() || '';
+  const normalizedBaseUrl = baseUrl?.trim().replace(/\/+$/, '') || '';
   if (normalizedBaseUrl) {
+    if (provider === 'gemini') {
+      try {
+        const parsedUrl = new URL(normalizedBaseUrl);
+        const normalizedPath = parsedUrl.pathname.replace(/\/+$/, '');
+
+        if (
+          parsedUrl.origin.toLowerCase() === GEMINI_ROOT_BASE_URL
+          && (!normalizedPath || normalizedPath === '/v1beta')
+        ) {
+          return GEMINI_ROOT_BASE_URL;
+        }
+      } catch {
+        const loweredBaseUrl = normalizedBaseUrl.toLowerCase();
+        if (loweredBaseUrl === GEMINI_ROOT_BASE_URL || loweredBaseUrl === DEFAULT_GEMINI_BASE_URL) {
+          return GEMINI_ROOT_BASE_URL;
+        }
+      }
+    }
+
     return normalizedBaseUrl;
   }
 
@@ -193,7 +214,7 @@ function normalizeApiConfig(config: APIConfig): APIConfig {
     providerLabel: normalizeProviderLabel(config),
     apiKey: config.apiKey.trim(),
     model: config.model.trim(),
-    baseUrl: config.baseUrl?.trim() || '',
+    baseUrl: normalizeBaseUrl(config.provider, config.baseUrl),
     stageModels: normalizeStageModels(config.stageModels),
     stageAPIOverrides: normalizeStageAPIOverrides(config.stageAPIOverrides),
   };
@@ -578,7 +599,6 @@ export function useManga2Novel() {
       setApiProfiles(nextProfiles);
       setActiveApiProfileIdState(nextActiveProfileId);
       setCreativePresets(nextPresets);
-
       if (savedOrcConfig) {
         orchestrator.updateConfig(savedOrcConfig);
       }

@@ -40,6 +40,7 @@ import {
   COMPATIBLE_MODELS,
   DEFAULT_STAGE_API_OVERRIDES,
   DEFAULT_STAGE_MODELS,
+  GEMINI_ROOT_BASE_URL,
   GEMINI_MODELS,
   PROVIDER_DISPLAY_NAMES,
   REQUEST_STAGE_LABELS,
@@ -105,7 +106,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: 'Google Gemini',
     provider: 'gemini',
     providerLabel: 'Google Gemini',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    baseUrl: GEMINI_ROOT_BASE_URL,
     description: 'Gemini 原生接口，和兼容接口分开处理。',
   },
   {
@@ -175,7 +176,7 @@ function getDefaultModelsForProvider(provider: APIProvider): ModelOption[] {
 
 function getBaseUrlPlaceholder(provider: APIProvider): string {
   return provider === 'gemini'
-    ? 'https://generativelanguage.googleapis.com/v1beta'
+    ? GEMINI_ROOT_BASE_URL
     : 'https://api.openai.com/v1';
 }
 
