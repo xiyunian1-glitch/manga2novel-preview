@@ -50,6 +50,7 @@ type ProgressItem = {
   key: string;
   stage: RequestStage;
   itemIndex: number;
+  batchIndex?: number;
   label: string;
   meta: string;
   status: ChunkStatus;
@@ -272,6 +273,7 @@ function buildPageItem(taskState: TaskState): ProgressItem[] {
       key: `page-${page.index}`,
       stage: 'analyze-pages',
       itemIndex: page.index,
+      batchIndex: page.analysisBatchIndex,
       label: `第 ${page.pageNumber} 页`,
       meta: [page.location, page.timeHint].filter(Boolean).join(' / ') || '等待提取场景信息',
       status: page.status,
@@ -529,7 +531,7 @@ function getEditDescription(item: ProgressItem): string {
     case 'synthesize-chunks':
       return '修改这一块的综合结果。保存后会刷新整书综合及后续阶段。';
     case 'synthesize-story':
-      return '修改整书综合。若 sceneOutline 有变化，继续前需要重新确认大纲。';
+      return '修改整书综合。若 sceneOutline 有变化，写作前统稿与后续章节会按新大纲重新刷新。';
     case 'write-sections':
       return item.itemIndex < 0
         ? '修改写作前统稿。保存后后续章节会标记为待刷新。'
@@ -565,7 +567,9 @@ function buildStageCards(taskState: TaskState): StageCard[] {
     stage: 'synthesize-story',
     title: '整书综合',
     value: statusLabel(taskState.globalSynthesis.status),
-    secondary: taskState.globalSynthesis.outlineConfirmed ? '场景大纲已确认' : '场景大纲待确认',
+    secondary: taskState.globalSynthesis.sceneOutline.length > 0
+      ? `已生成 ${taskState.globalSynthesis.sceneOutline.length} 个场景`
+      : undefined,
     hint: splitDraftMode ? '基于逐页分析直接做整书综合' : '查看全书故事综合',
   });
 
@@ -672,9 +676,54 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
   const useCompactChunkCards = isSplitDraftMode(taskState) && displayStage === 'synthesize-chunks';
   const useDenseListLayout = useCompactChunkCards || items.length > 1;
   const activeRuntimeItem = activeStageItems.find((item) => item.status === 'processing') || null;
-  const activeRuntimeLabel = activeRuntimeItem
-    ? formatRuntime(getLiveRuntimeMs(activeRuntimeItem.runtimeMs, activeRuntimeItem.runtimeStartedAt, nowMs))
-    : null;
+  const primaryProcessingPageKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const seenBatchIndexes = new Set<number>();
+
+    taskState.pageAnalyses.forEach((page) => {
+      if (page.status !== 'processing' || seenBatchIndexes.has(page.analysisBatchIndex)) {
+        return;
+      }
+
+      seenBatchIndexes.add(page.analysisBatchIndex);
+      keys.add(`page-${page.index}`);
+    });
+
+    return keys;
+  }, [taskState.pageAnalyses]);
+  const activeRuntimeDescriptor = useMemo(() => {
+    if (taskState.currentStage === 'analyze-pages') {
+      const processingPages = taskState.pageAnalyses.filter((page) => page.status === 'processing');
+      if (processingPages.length > 0) {
+        const targetBatchIndex = processingPages.some((page) => page.analysisBatchIndex === taskState.currentChunkIndex)
+          ? taskState.currentChunkIndex
+          : processingPages[0].analysisBatchIndex;
+        const batchPages = processingPages.filter((page) => page.analysisBatchIndex === targetBatchIndex);
+        const primaryPage = batchPages[0];
+        const firstPageNumber = batchPages[0]?.pageNumber ?? primaryPage?.pageNumber;
+        const lastPageNumber = batchPages[batchPages.length - 1]?.pageNumber ?? primaryPage?.pageNumber;
+        const runtimeLabel = primaryPage
+          ? formatRuntime(getLiveRuntimeMs(primaryPage.runtimeMs, primaryPage.runtimeStartedAt, nowMs))
+          : null;
+
+        return {
+          label: batchPages.length > 1
+            ? `当前批次：第 ${firstPageNumber}-${lastPageNumber} 页`
+            : primaryPage
+              ? `当前页：第 ${primaryPage.pageNumber} 页`
+              : '当前项',
+          runtimeLabel,
+        };
+      }
+    }
+
+    return activeRuntimeItem
+      ? {
+          label: `当前项：${activeRuntimeItem.label}`,
+          runtimeLabel: formatRuntime(getLiveRuntimeMs(activeRuntimeItem.runtimeMs, activeRuntimeItem.runtimeStartedAt, nowMs)),
+        }
+      : null;
+  }, [activeRuntimeItem, nowMs, taskState.currentChunkIndex, taskState.currentStage, taskState.pageAnalyses]);
 
   const includeChunkStage = !isSplitDraftMode(taskState);
   const totalUnits = taskState.pageAnalyses.length
@@ -806,8 +855,11 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground sm:text-sm">
             <span>{Math.round(progress)}%</span>
-            <span className="max-w-[15rem] truncate text-center sm:max-w-[20rem]" title={activeRuntimeItem ? `当前项：${activeRuntimeItem.label}` : '当前没有正在处理的条目'}>
-              {activeRuntimeItem ? `当前项：${activeRuntimeItem.label} · ${activeRuntimeLabel}` : '当前项用时 --'}
+            <span
+              className="max-w-[15rem] truncate text-center sm:max-w-[20rem]"
+              title={activeRuntimeDescriptor ? `${activeRuntimeDescriptor.label} · ${activeRuntimeDescriptor.runtimeLabel || '--'}` : '当前没有正在处理的条目'}
+            >
+              {activeRuntimeDescriptor ? `${activeRuntimeDescriptor.label} · ${activeRuntimeDescriptor.runtimeLabel || '--'}` : '当前项用时 --'}
             </span>
             <span>{completedUnits} / {totalUnits || 0}</span>
           </div>
@@ -891,7 +943,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                         <Badge variant="outline">{statusLabel(item.status)}</Badge>
                       </div>
                       <div className="text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">{item.meta}</div>
-                      {formatItemRuntimeLabel(item, nowMs) ? (
+                      {(item.stage !== 'analyze-pages' || item.status !== 'processing' || primaryProcessingPageKeys.has(item.key)) && formatItemRuntimeLabel(item, nowMs) ? (
                         <div className="text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
                           {formatItemRuntimeLabel(item, nowMs)}
                         </div>

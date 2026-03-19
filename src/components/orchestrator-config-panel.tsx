@@ -36,7 +36,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           <div className="space-y-1">
             <Label className="text-sm">流程模式</Label>
             <p className="text-xs text-muted-foreground">
-              逐页分析模式会走“逐页分析 → 分块综合 → 整书综合”；直综合写作会走“逐页分析 → 整书综合 → 场景确认/统稿 → 章节写作”，中间不再做分块综合。
+              逐页分析模式会走“逐页分析 → 分块综合 → 整书综合”；直综合写作会走“逐页分析 → 整书综合 → 写作前统稿 → 章节写作”，中间不再做分块综合。
             </p>
           </div>
           <Tabs

@@ -20,7 +20,6 @@ import { ImageUploadPanel } from '@/components/image-upload-panel';
 import { NovelPreview } from '@/components/novel-preview';
 import { OrchestratorConfigPanel } from '@/components/orchestrator-config-panel';
 import { ProgressPanel } from '@/components/progress-panel';
-import { SceneOutlineEditor } from '@/components/scene-outline-editor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -130,8 +129,6 @@ export default function Manga2NovelApp() {
     updateWritingPreparation,
     updateNovelSection,
     updateFinalPolish,
-    updateSceneOutline,
-    confirmSceneOutlineAndResume,
     dismissRecoveryNotice,
     reset,
     exportNovel,
@@ -191,10 +188,6 @@ export default function Manga2NovelApp() {
   const hasPreviewContent = taskState.novelSections.some((item) => (
     item.status === 'success' && Boolean(item.markdownBody?.trim())
   )) || Boolean(taskState.finalPolish.markdownBody?.trim());
-  const needsOutlineConfirmation = (
-    (taskState.globalSynthesis.status === 'success' || taskState.globalSynthesis.status === 'skipped')
-    && !taskState.globalSynthesis.outlineConfirmed
-  );
   const currentPresetName = useMemo(() => {
     return creativePresets.find((preset) => preset.id === taskState.creativeSettings.presetId)?.name || '自定义';
   }, [creativePresets, taskState.creativeSettings.presetId]);
@@ -341,11 +334,6 @@ export default function Manga2NovelApp() {
   };
 
   const handleResume = async () => {
-    if (needsOutlineConfirmation) {
-      toast.error('请先确认 sceneOutline，再继续进入章节写作');
-      return;
-    }
-
     try {
       await resume();
     } catch (error) {
@@ -384,7 +372,7 @@ export default function Manga2NovelApp() {
         }
         case 'synthesize-story': {
           await regenerateStory();
-          toast.success('整书综合已重新生成。已有章节先保留，确认大纲后点“继续”即可往后刷新。');
+          toast.success('整书综合已重新生成。已有章节先保留，点“继续”即可从写作前统稿往后刷新。');
           return;
         }
         case 'write-sections': {
@@ -553,7 +541,6 @@ export default function Manga2NovelApp() {
       data-app-status={taskState.status}
       data-current-stage={taskState.currentStage}
       data-start-ready={canStart ? 'true' : 'false'}
-      data-outline-confirmation-needed={needsOutlineConfirmation ? 'true' : 'false'}
     >
       <Toaster position="top-right" richColors />
 
@@ -640,7 +627,6 @@ export default function Manga2NovelApp() {
                     onClick={handleResume}
                     size="sm"
                     className="h-9"
-                    disabled={needsOutlineConfirmation}
                     data-action="resume-processing"
                   >
                     <Play className="mr-1 h-4 w-4" />
@@ -651,7 +637,6 @@ export default function Manga2NovelApp() {
                     size="sm"
                     className="h-9"
                     onClick={handleSkip}
-                    disabled={needsOutlineConfirmation}
                     data-action="skip-current"
                   >
                     <SkipForward className="mr-1 h-4 w-4" />
@@ -776,16 +761,6 @@ export default function Manga2NovelApp() {
                       ) : null}
                     </CardContent>
                   </Card>
-                ) : null}
-                {needsOutlineConfirmation ? (
-                  <SceneOutlineEditor
-                    sceneOutline={taskState.globalSynthesis.sceneOutline}
-                    chunkSyntheses={taskState.chunkSyntheses}
-                    workflowMode={taskState.config.workflowMode}
-                    disabled={isRunning}
-                    onSave={updateSceneOutline}
-                    onConfirmAndContinue={confirmSceneOutlineAndResume}
-                  />
                 ) : null}
                 <ProgressPanel
                   taskState={taskState}

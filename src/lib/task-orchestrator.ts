@@ -2087,7 +2087,6 @@ export class TaskOrchestrator {
         )
       : currentSceneOutline;
     const sceneOutlineChanged = JSON.stringify(nextSceneOutline) !== JSON.stringify(currentSceneOutline);
-    const outlineConfirmed = this.state.globalSynthesis.outlineConfirmed;
 
     this.state.globalSynthesis.storyOverview = sanitizeNarrativeText(
       toString(record.storyOverview, this.state.globalSynthesis.storyOverview)
@@ -2103,9 +2102,7 @@ export class TaskOrchestrator {
       ? sanitizeNarrativeArray(record.writingConstraints)
       : [...this.state.globalSynthesis.writingConstraints];
     this.markManualEditComplete(this.state.globalSynthesis);
-    this.state.globalSynthesis.outlineConfirmed = sceneOutlineChanged
-      ? false
-      : outlineConfirmed;
+    this.state.globalSynthesis.outlineConfirmed = true;
     this.state.memory.globalSummary = this.state.globalSynthesis.storyOverview || this.state.memory.globalSummary;
 
     if (sceneOutlineChanged || this.state.novelSections.length === 0) {
@@ -2207,7 +2204,7 @@ export class TaskOrchestrator {
       sceneOutline,
       this.state.chunkSyntheses.length
     );
-    this.state.globalSynthesis.outlineConfirmed = false;
+    this.state.globalSynthesis.outlineConfirmed = true;
     this.initializeSectionsFromGlobalSynthesis();
     this.emit('state-change');
   }
@@ -3321,7 +3318,6 @@ export class TaskOrchestrator {
 
     if (
       !isTerminalChunkStatus(this.state.globalSynthesis.status, this.state.globalSynthesis.error)
-      || !this.state.globalSynthesis.outlineConfirmed
     ) {
       return {
         stage: 'synthesize-story',
@@ -3448,7 +3444,12 @@ export class TaskOrchestrator {
         state.chunkSyntheses.length
       ),
       writingConstraints: [...(normalizedGlobalSynthesis.writingConstraints || [])],
-      outlineConfirmed: Boolean(normalizedGlobalSynthesis.outlineConfirmed),
+      outlineConfirmed: (
+        normalizedGlobalSynthesis.status === 'success'
+        || normalizedGlobalSynthesis.status === 'skipped'
+      )
+        ? true
+        : Boolean(normalizedGlobalSynthesis.outlineConfirmed),
     };
     state.pageAnalyses = (state.pageAnalyses || []).map((page) => ({
       ...page,
@@ -3784,7 +3785,7 @@ export class TaskOrchestrator {
       ...this.state.globalSynthesis,
       ...fallback,
       status: 'skipped',
-      outlineConfirmed: false,
+      outlineConfirmed: true,
       retryCount: 0,
       error: errorMessage,
     };
@@ -4389,12 +4390,10 @@ export class TaskOrchestrator {
 
     if (isTerminalChunkStatus(this.state.globalSynthesis.status, this.state.globalSynthesis.error)) {
       if (!this.state.globalSynthesis.outlineConfirmed) {
-        this.stopRuntimeTracking();
-        this.state.status = 'paused';
-        this.state.currentStage = 'synthesize-story';
-        this.state.currentChunkIndex = 0;
-        this.emit('paused');
-        return false;
+        this.state.globalSynthesis.outlineConfirmed = true;
+        if (this.state.novelSections.length === 0 && this.state.globalSynthesis.sceneOutline.length > 0) {
+          this.initializeSectionsFromGlobalSynthesis();
+        }
       }
       return true;
     }
@@ -4443,7 +4442,7 @@ export class TaskOrchestrator {
         characterGuide: result.characterGuide,
         sceneOutline: alignSceneOutlineToChunks(result.sceneOutline, this.state.chunkSyntheses),
         writingConstraints: result.writingConstraints,
-        outlineConfirmed: false,
+        outlineConfirmed: true,
         retryCount: 0,
         error: undefined,
       };
@@ -4452,12 +4451,7 @@ export class TaskOrchestrator {
       this.initializeSectionsFromGlobalSynthesis();
       this.markSectionsPendingFrom(0);
       this.emit('chunk-success', 0);
-      this.stopRuntimeTracking();
-      this.state.status = 'paused';
-      this.state.currentStage = 'synthesize-story';
-      this.state.currentChunkIndex = 0;
-      this.emit('paused');
-      return false;
+      return true;
     } catch (error) {
       if (isAbortError(error)) {
         stopTrackedRuntime(this.state.globalSynthesis);
@@ -4472,13 +4466,9 @@ export class TaskOrchestrator {
       this.state.globalSynthesis.status = 'error';
       this.state.globalSynthesis.error = errorMessage;
       if (this.shouldAutoSkipOnError()) {
+        stopTrackedRuntime(this.state.globalSynthesis);
         this.applySkippedStorySynthesis(errorMessage);
-        this.stopRuntimeTracking();
-        this.state.status = 'paused';
-        this.state.currentStage = 'synthesize-story';
-        this.state.currentChunkIndex = 0;
-        this.emit('paused');
-        return false;
+        return true;
       }
       this.stopRuntimeTracking();
       this.state.status = 'paused';
@@ -5106,7 +5096,7 @@ export class TaskOrchestrator {
           ...this.state.globalSynthesis,
           ...fallback,
           status: 'skipped',
-          outlineConfirmed: false,
+          outlineConfirmed: true,
           retryCount: 0,
           error: undefined,
         };
@@ -5309,7 +5299,7 @@ export class TaskOrchestrator {
     this.state.globalSynthesis.error = undefined;
     resetTrackedRuntime(this.state.globalSynthesis);
     this.state.globalSynthesis.retryCount = 0;
-    this.state.globalSynthesis.outlineConfirmed = false;
+    this.state.globalSynthesis.outlineConfirmed = true;
     this.beginSingleItemReplay('synthesize-story', 0);
 
     this.state.globalSynthesis.status = 'processing';
@@ -5355,7 +5345,7 @@ export class TaskOrchestrator {
         characterGuide: result.characterGuide,
         sceneOutline: alignSceneOutlineToChunks(result.sceneOutline, this.state.chunkSyntheses),
         writingConstraints: result.writingConstraints,
-        outlineConfirmed: false,
+        outlineConfirmed: true,
         retryCount: 0,
         error: undefined,
       };
