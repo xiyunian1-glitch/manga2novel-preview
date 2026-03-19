@@ -1304,22 +1304,21 @@ export function buildWritingPreparationUserPrompt(
   writingMode: WritingMode
 ): string {
   const storyContext = {
-    storyOverview: compactPromptText(storySynthesis.storyOverview, 700),
-    worldGuide: compactPromptText(storySynthesis.worldGuide, 420),
-    characterGuide: compactPromptText(storySynthesis.characterGuide, 700),
-    writingConstraints: compactPromptList(storySynthesis.writingConstraints, 8, 180),
+    storyOverview: compactPromptText(storySynthesis.storyOverview, 520),
+    worldGuide: compactPromptText(storySynthesis.worldGuide, 280),
+    characterGuide: compactPromptText(storySynthesis.characterGuide, 520),
+    writingConstraints: compactPromptList(storySynthesis.writingConstraints, 6, 140),
     sceneOutline: storySynthesis.sceneOutline.map((scene) => ({
       sceneId: scene.sceneId,
       title: scene.title,
-      summary: compactPromptText(scene.summary, 180),
+      summary: compactPromptText(scene.summary, 120),
       chunkIndexes: scene.chunkIndexes,
     })),
     chunkSummaries: chunkSyntheses.map((chunk) => ({
       index: chunk.index,
       title: chunk.title,
-      summary: compactPromptText(chunk.summary, 180),
-      draftExcerpt: buildExcerpt(chunk.draftText, 220, 100),
-      continuitySummary: compactPromptText(chunk.continuitySummary, 140),
+      summary: compactPromptText(chunk.summary, 120),
+      continuitySummary: compactPromptText(chunk.continuitySummary, 100),
     })),
   };
 

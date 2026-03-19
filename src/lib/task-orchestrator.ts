@@ -3076,7 +3076,7 @@ export class TaskOrchestrator {
           stage: 'write-sections',
           itemLabel: '章节写作：写作前全书统稿',
           chunkIndex: 0,
-          imageNames: this.getAllImageNames(),
+          imageNames: [],
           images: [],
           systemPrompt: buildWritingPreparationSystemPrompt(this.state.creativeSettings.systemPrompt),
           userPrompt: buildWritingPreparationUserPrompt(
