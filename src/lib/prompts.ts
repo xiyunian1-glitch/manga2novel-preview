@@ -592,11 +592,16 @@ function buildBoundaryPagePreview(pageAnalyses: PageAnalysis[], mode: 'start' | 
 
   return selectedPages.map((page) => ({
     pageNumber: page.pageNumber,
-    summary: page.summary,
-    location: page.location,
-    timeHint: page.timeHint,
-    keyEvents: page.keyEvents.slice(0, 4),
-    characters: dedupeStrings(page.characters.map((character) => character.name), 5),
+    summary: compactPromptText(page.summary, 120),
+    location: compactPromptText(page.location, 24),
+    timeHint: compactPromptText(page.timeHint, 24),
+    keyEvents: compactPromptList(page.keyEvents, 3, 48),
+    characters: dedupeStrings(
+      page.characters
+        .map((character) => compactPromptText(character.name, 18))
+        .filter(Boolean),
+      4
+    ),
   }));
 }
 
@@ -704,17 +709,69 @@ function buildSectionDialogueLedger(
       return {
         pageNumber: page.pageNumber,
         lineIndex: index + 1,
-        text: line.text,
-        currentSpeaker,
-        currentSpeakerEvidence,
+        text: compactPromptText(line.text, 80),
+        currentSpeaker: compactPromptText(currentSpeaker, 16),
+        currentSpeakerEvidence: compactPromptText(currentSpeakerEvidence, 40),
         currentSpeakerConfidence,
-        originalSpeaker,
-        originalSpeakerEvidence,
+        originalSpeaker: compactPromptText(originalSpeaker, 16),
+        originalSpeakerEvidence: compactPromptText(originalSpeakerEvidence, 40),
         originalSpeakerConfidence,
         speakerSource: line.speakerSource || 'page-analysis',
         needsVisualVerification,
       };
     }));
+}
+
+function buildCompactSectionChunkSource(chunks: ChunkSynthesis[]) {
+  return chunks.map((chunk) => ({
+    index: chunk.index,
+    title: compactPromptText(chunk.title, 36),
+    summary: compactPromptText(chunk.summary, 160),
+    keyDevelopments: compactPromptList(chunk.keyDevelopments, 4, 60),
+    continuitySummary: compactPromptText(chunk.continuitySummary, 120),
+  }));
+}
+
+function buildCompactSectionPageSource(
+  pages: Array<{
+    pageNumber: number;
+    summary?: string;
+    location?: string;
+    timeHint?: string;
+    keyEvents: string[];
+    dialogue: SectionDialoguePromptLine[];
+    narrationText: string[];
+    visualText: string[];
+    characters: Array<{
+      name: string;
+      role: string;
+      relationshipHints: string[];
+    }>;
+  }>
+) {
+  return pages.map((page) => ({
+    pageNumber: page.pageNumber,
+    summary: compactPromptText(page.summary, 120),
+    location: compactPromptText(page.location, 24),
+    timeHint: compactPromptText(page.timeHint, 24),
+    keyEvents: compactPromptList(page.keyEvents, 3, 48),
+    dialogue: page.dialogue
+      .filter((line) => Boolean(line.text.trim()))
+      .slice(0, 3)
+      .map((line) => ({
+        speaker: compactPromptText(line.speaker, 16),
+        text: compactPromptText(line.text, 48),
+      })),
+    narrationText: compactPromptList(page.narrationText, 1, 48),
+    visualText: compactPromptList(page.visualText, 1, 36),
+    characters: page.characters
+      .slice(0, 4)
+      .map((character) => ({
+        name: compactPromptText(character.name, 20),
+        role: compactPromptText(character.role, 32),
+        relationshipHints: compactPromptList(character.relationshipHints, 2, 32),
+      })),
+  }));
 }
 
 function buildChunkContinuityChain(chunkSyntheses: ChunkSynthesis[]) {
@@ -1063,6 +1120,7 @@ export function buildSectionUserPrompt(
       keyDevelopments: chunk.keyDevelopments,
       continuitySummary: chunk.continuitySummary,
     }));
+  const compactRelatedChunks = buildCompactSectionChunkSource(relatedChunkSyntheses);
   const dialogueResolutionMap = createDialogueResolutionMap(relatedChunkSyntheses);
   const relatedPages = relatedPageAnalyses
     .map((page) => {
@@ -1105,6 +1163,7 @@ export function buildSectionUserPrompt(
         })),
       };
     });
+  const compactRelatedPages = buildCompactSectionPageSource(relatedPages);
   const sectionDialogueLedger = buildSectionDialogueLedger(relatedPages);
   const mandatoryDialogueCarryList = buildMandatoryDialogueCarryList(sectionDialogueLedger);
   const previousScene = storySynthesis.sceneOutline[sectionIndex - 1];
@@ -1172,25 +1231,33 @@ export function buildSectionUserPrompt(
       : null,
     sceneWindow,
   };
+  const compactCurrentSceneCharacters = currentSceneCharacters.map((character) => ({
+    name: compactPromptText(character.name, 20),
+    roles: compactPromptList(character.roles, 3, 24),
+    traits: compactPromptList(character.traits, 4, 28),
+    relationshipHints: compactPromptList(character.relationshipHints, 4, 36),
+    pageNumbers: character.pageNumbers.slice(0, 6),
+    chunkIndexes: character.chunkIndexes.slice(0, 4),
+  }));
   const sceneSourceBlock = [
     `【本节标题】`,
     scenePlan.title,
     '',
     `【本节摘要】`,
-    scenePlan.summary,
+    compactPromptText(scenePlan.summary, 180),
     '',
     `【相关块】`,
-    stringifyPromptData(relatedChunks),
+    stringifyPromptData(compactRelatedChunks),
     '',
     `【相关逐页分析】`,
-    stringifyPromptData(relatedPages),
+    stringifyPromptData(compactRelatedPages),
     '',
     `【人物与世界约束】`,
     stringifyPromptData({
-      storyOverview: storySynthesis.storyOverview,
-      worldGuide: storySynthesis.worldGuide,
-      characterGuide: storySynthesis.characterGuide,
-      writingConstraints: storySynthesis.writingConstraints,
+      storyOverview: compactPromptText(storySynthesis.storyOverview, 520),
+      worldGuide: compactPromptText(storySynthesis.worldGuide, 240),
+      characterGuide: compactPromptText(storySynthesis.characterGuide, 520),
+      writingConstraints: compactPromptList(storySynthesis.writingConstraints, 6, 120),
     }),
   ].join('\n');
   const enrichedSceneSourceBlock = [
@@ -1236,18 +1303,46 @@ export function buildSectionUserPrompt(
       : '',
     '',
     'Section continuity context',
-    stringifyPromptData(sectionContinuityContext),
+    stringifyPromptData({
+      previousScene: sectionContinuityContext.previousScene
+        ? {
+            ...sectionContinuityContext.previousScene,
+            title: compactPromptText(sectionContinuityContext.previousScene.title, 36),
+            summary: compactPromptText(sectionContinuityContext.previousScene.summary, 120),
+            carryIn: compactPromptText(sectionContinuityContext.previousScene.carryIn, 220),
+          }
+        : null,
+      currentScene: {
+        ...sectionContinuityContext.currentScene,
+        title: compactPromptText(sectionContinuityContext.currentScene.title, 36),
+        summary: compactPromptText(sectionContinuityContext.currentScene.summary, 120),
+        relatedChunkContinuity: compactRelatedChunks,
+        characterMatrix: compactCurrentSceneCharacters,
+      },
+      nextScene: sectionContinuityContext.nextScene
+        ? {
+            ...sectionContinuityContext.nextScene,
+            title: compactPromptText(sectionContinuityContext.nextScene.title, 36),
+            summary: compactPromptText(sectionContinuityContext.nextScene.summary, 120),
+          }
+        : null,
+      sceneWindow: sectionContinuityContext.sceneWindow.map((scene) => ({
+        ...scene,
+        title: compactPromptText(scene.title, 36),
+        summary: compactPromptText(scene.summary, 100),
+      })),
+    }),
     '',
     'Current scene character matrix',
-    stringifyPromptData(currentSceneCharacters),
+    stringifyPromptData(compactCurrentSceneCharacters),
   ].join('\n');
 
   const variables: Record<string, string> = {
     chunkHeader: sectionIndex === 0
       ? '这是小说的开篇章节，请基于以下结构化场景资料开始创作。'
       : `这是小说的第 ${sectionIndex + 1} 节，请基于以下结构化场景资料继续创作。`,
-    summaryBlock: storySynthesis.storyOverview ? `【全书剧情概览】\n${storySynthesis.storyOverview}` : '',
-    endingBlock: previousContinuity ? `【前一节承接】\n${previousContinuity}` : '',
+    summaryBlock: storySynthesis.storyOverview ? `【全书剧情概览】\n${compactPromptText(storySynthesis.storyOverview, 520)}` : '',
+    endingBlock: previousContinuity ? `【前一节承接】\n${compactPromptText(previousContinuity, 220)}` : '',
     continuationBlock: enrichedSceneSourceBlock,
     outputInstruction: '请只根据以上资料创作，并严格按 JSON 输出 novelText 与 continuitySummary。返回前请自查 [Mandatory dialogue lines] 中的台词是否已带入正文，不要漏掉明确可读的原台词。',
   };
