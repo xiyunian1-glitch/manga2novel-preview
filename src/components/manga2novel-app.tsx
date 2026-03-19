@@ -479,27 +479,27 @@ export default function Manga2NovelApp() {
           </Button>
         )}
       />
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-hidden">
         <DialogHeader>
           <DialogTitle>上一次发给 AI 的内容</DialogTitle>
         </DialogHeader>
         <div className="grid gap-3 text-sm sm:grid-cols-2">
-          <div><span className="font-medium">模型：</span>{lastAIRequest?.model || '暂无'}</div>
-          <div><span className="font-medium">提供商：</span>{lastAIRequest?.providerLabel || lastAIRequest?.provider || '暂无'}</div>
-          <div><span className="font-medium">阶段：</span>{lastAIRequest?.stage || '暂无'}</div>
-          <div><span className="font-medium">任务：</span>{lastAIRequest?.itemLabel || '暂无'}</div>
-          <div><span className="font-medium">请求状态：</span>{requestTraceStatusLabel(lastAIRequest?.status)}</div>
-          <div><span className="font-medium">总尝试次数：</span>{lastAIRequest?.totalAttempts || 0}</div>
-          <div><span className="font-medium">图片数：</span>{lastAIRequest ? `${lastAIRequest.imageCount} 张` : '暂无'}</div>
-          <div><span className="font-medium">最近发送：</span>{formatRequestTimestamp(lastAIRequest?.sentAt)}</div>
-          <div className="sm:col-span-2"><span className="font-medium">图片：</span>{lastAIRequest?.imageNames.join('、') || '暂无'}</div>
-          <div className="sm:col-span-2"><span className="font-medium">接口地址：</span>{lastAIRequest?.baseUrl || '默认地址'}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">模型：</span>{lastAIRequest?.model || '暂无'}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">提供商：</span>{lastAIRequest?.providerLabel || lastAIRequest?.provider || '暂无'}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">阶段：</span>{lastAIRequest?.stage || '暂无'}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">任务：</span>{lastAIRequest?.itemLabel || '暂无'}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">请求状态：</span>{requestTraceStatusLabel(lastAIRequest?.status)}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">总尝试次数：</span>{lastAIRequest?.totalAttempts || 0}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">图片数：</span>{lastAIRequest ? `${lastAIRequest.imageCount} 张` : '暂无'}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">最近发送：</span>{formatRequestTimestamp(lastAIRequest?.sentAt)}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere] sm:col-span-2"><span className="font-medium">图片：</span>{lastAIRequest?.imageNames.join('、') || '暂无'}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere] sm:col-span-2"><span className="font-medium">接口地址：</span>{lastAIRequest?.baseUrl || '默认地址'}</div>
         </div>
         <ScrollArea className="h-[420px] rounded-lg border border-border bg-muted/20 p-3">
           <div className="space-y-4 pr-4">
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground">首轮失败原因</div>
-              <div className="rounded-lg border bg-background/80 px-3 py-2 text-xs leading-6">
+              <div className="rounded-lg border bg-background/80 px-3 py-2 text-xs leading-6 whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {lastAIRequest?.firstFailureReason || '本次请求首轮没有失败，或还没记录到失败。'}
               </div>
             </div>
@@ -510,28 +510,28 @@ export default function Manga2NovelApp() {
                   {retryHistoryAttempts.map((attempt) => (
                     <div
                       key={`${attempt.sequence}-${attempt.sentAt}`}
-                      className="rounded-lg border bg-background/80 px-3 py-2 text-xs leading-6"
+                      className="min-w-0 rounded-lg border bg-background/80 px-3 py-2 text-xs leading-6"
                     >
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                         <span className="font-medium">第 {attempt.sequence} 次</span>
-                        <span>模型：{attempt.model}</span>
-                        <span>时间：{formatRequestTimestamp(attempt.sentAt)}</span>
+                        <span className="min-w-0 [overflow-wrap:anywhere]">模型：{attempt.model}</span>
+                        <span className="min-w-0 [overflow-wrap:anywhere]">时间：{formatRequestTimestamp(attempt.sentAt)}</span>
                         <Badge
                           variant={attempt.outcome === 'success' ? 'default' : attempt.outcome === 'running' ? 'secondary' : 'outline'}
                         >
                           {attempt.outcome === 'success' ? '成功' : attempt.outcome === 'running' ? '进行中' : '失败'}
                         </Badge>
                       </div>
-                      <div className="mt-1 text-muted-foreground">
+                      <div className="mt-1 text-muted-foreground [overflow-wrap:anywhere]">
                         max_tokens：{attempt.maxOutputTokens ?? '默认'}
                       </div>
                       {attempt.error ? (
-                        <div className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-red-700">
+                        <div className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-red-700 whitespace-pre-wrap [overflow-wrap:anywhere]">
                           {attempt.error}
                         </div>
                       ) : null}
                       {attempt.nextAction ? (
-                        <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-800">
+                        <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-800 whitespace-pre-wrap [overflow-wrap:anywhere]">
                           后续动作：{attempt.nextAction}
                         </div>
                       ) : null}
@@ -546,12 +546,12 @@ export default function Manga2NovelApp() {
             </div>
             <div className="space-y-1">
               <div className="text-xs font-medium text-muted-foreground">System Prompt</div>
-              <pre className="whitespace-pre-wrap break-words text-xs leading-6">{lastAIRequest?.systemPrompt || '暂无'}</pre>
+              <pre className="whitespace-pre-wrap text-xs leading-6 [overflow-wrap:anywhere]">{lastAIRequest?.systemPrompt || '暂无'}</pre>
             </div>
             <Separator />
             <div className="space-y-1">
               <div className="text-xs font-medium text-muted-foreground">User Prompt</div>
-              <pre className="whitespace-pre-wrap break-words text-xs leading-6">{lastAIRequest?.userPrompt || '暂无'}</pre>
+              <pre className="whitespace-pre-wrap text-xs leading-6 [overflow-wrap:anywhere]">{lastAIRequest?.userPrompt || '暂无'}</pre>
             </div>
           </div>
         </ScrollArea>

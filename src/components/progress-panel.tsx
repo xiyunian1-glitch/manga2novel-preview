@@ -818,12 +818,12 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
       <CardContent className="space-y-3">
         {currentErrorItem ? (
           <div className="rounded-lg border border-red-200 bg-red-50/70 p-2.5 text-sm">
-            <div className="font-medium text-red-700">{currentErrorItem.label}</div>
-            <div className="mt-1.5 whitespace-pre-wrap text-red-700">{currentErrorItem.error}</div>
+            <div className="min-w-0 [overflow-wrap:anywhere] font-medium text-red-700">{currentErrorItem.label}</div>
+            <div className="mt-1.5 whitespace-pre-wrap text-red-700 [overflow-wrap:anywhere]">{currentErrorItem.error}</div>
             {currentErrorAdvice ? (
               <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-amber-900">
                 <div className="font-medium">{currentErrorAdvice.title}</div>
-                <div className="mt-1 text-sm">{currentErrorAdvice.summary}</div>
+                <div className="mt-1 text-sm [overflow-wrap:anywhere]">{currentErrorAdvice.summary}</div>
               </div>
             ) : null}
           </div>
@@ -890,16 +890,16 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                         <span className="font-medium">{item.label}</span>
                         <Badge variant="outline">{statusLabel(item.status)}</Badge>
                       </div>
-                      <div className="text-[11px] leading-4 text-muted-foreground">{item.meta}</div>
+                      <div className="text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">{item.meta}</div>
                       {formatItemRuntimeLabel(item, nowMs) ? (
-                        <div className="text-[11px] leading-4 text-muted-foreground">
+                        <div className="text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
                           {formatItemRuntimeLabel(item, nowMs)}
                         </div>
                       ) : null}
                       <div
                         className={useDenseListLayout
-                          ? 'max-h-11 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground'
-                          : 'whitespace-pre-wrap text-sm leading-6 text-muted-foreground'}
+                          ? 'max-h-11 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]'
+                          : 'whitespace-pre-wrap text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]'}
                       >
                         {item.preview}
                       </div>
@@ -943,7 +943,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                   {item.error ? (
                     <>
                       <Separator className="my-2" />
-                      <div className="text-xs leading-5 text-red-600">{item.error}</div>
+                      <div className="text-xs leading-5 text-red-600 whitespace-pre-wrap [overflow-wrap:anywhere]">{item.error}</div>
                     </>
                   ) : null}
                 </div>
@@ -1024,12 +1024,12 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                   </Button>
                   <div>
                     <DialogTitle>{selectedItem.label}</DialogTitle>
-                    <div className="text-xs text-muted-foreground">{selectedItem.meta}</div>
+                    <div className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{selectedItem.meta}</div>
                   </div>
                 </div>
               </DialogHeader>
               <ScrollArea className="max-h-[65vh] pr-4">
-                <div className="whitespace-pre-wrap text-sm leading-6">{selectedItem.detail}</div>
+                <div className="whitespace-pre-wrap text-sm leading-6 [overflow-wrap:anywhere]">{selectedItem.detail}</div>
               </ScrollArea>
             </>
           ) : null}
