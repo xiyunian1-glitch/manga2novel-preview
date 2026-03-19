@@ -5446,7 +5446,7 @@ export class TaskOrchestrator {
       throw new Error(`Section ${sectionIndex + 1} does not exist.`);
     }
 
-    this.markSectionsPendingFrom(sectionIndex);
+    this.markSectionsPendingPreservingWritingPreparation(sectionIndex);
     this.beginSingleItemReplay('write-sections', sectionIndex);
 
     const scenePlan = this.state.globalSynthesis.sceneOutline[sectionIndex] || {
