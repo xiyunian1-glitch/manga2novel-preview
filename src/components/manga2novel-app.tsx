@@ -27,7 +27,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { getJSON, setJSON } from '@/lib/crypto-store';
 import { detectLocalProxyStatus, getLocalProxyStatusLabelRange, type LocalProxyStatus } from '@/lib/api-adapter';
 import { getTroubleshootingAdvice } from '@/lib/error-hints';
 import type { APIConfig, LastAIRequest, OrchestratorConfig, RequestStage } from '@/lib/types';
@@ -40,8 +39,6 @@ import {
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useManga2Novel } from '@/hooks/use-manga2novel';
-
-const ADVANCED_SETTINGS_OPEN_STORAGE_KEY = 'advancedSettingsOpen';
 
 function hasResolvedModels(
   config: APIConfig,
@@ -90,14 +87,7 @@ function requestTraceStatusLabel(status?: LastAIRequest['status']): string {
 
 export default function Manga2NovelApp() {
   const [lastRequestOpen, setLastRequestOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(() => {
-    if (typeof window === 'undefined') {
-      return false;
-    }
-
-    const savedAdvancedOpen = getJSON<boolean>(ADVANCED_SETTINGS_OPEN_STORAGE_KEY);
-    return typeof savedAdvancedOpen === 'boolean' ? savedAdvancedOpen : false;
-  });
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [proxyStatus, setProxyStatus] = useState<LocalProxyStatus | null>(null);
   const [proxyStatusChecking, setProxyStatusChecking] = useState(false);
   const {
@@ -146,10 +136,6 @@ export default function Manga2NovelApp() {
     reset,
     exportNovel,
   } = useManga2Novel();
-
-  useEffect(() => {
-    setJSON(ADVANCED_SETTINGS_OPEN_STORAGE_KEY, advancedOpen);
-  }, [advancedOpen]);
 
   useEffect(() => {
     let isCancelled = false;
