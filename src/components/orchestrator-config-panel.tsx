@@ -31,7 +31,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           <div className="space-y-1">
             <Label className="text-sm">流程模式</Label>
             <p className="text-xs text-muted-foreground">
-              逐页分析会先拆每页再综合；均分生成会把整套图片平均分段，分别生成，再合成最终正文。
+              逐页分析模式会走“逐页分析 → 分块综合 → 整书综合”；直综合写作会走“逐页分析 → 整书综合 → 场景确认/统稿 → 章节写作”，中间不再做分块综合。
             </p>
           </div>
           <Tabs
@@ -69,22 +69,21 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
         {isSplitDraftMode ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-sm">均分段数</Label>
+              <Label className="text-sm">每组图片数（逐页分析）</Label>
               <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
-                {config.splitPartCount}
+                {config.chunkSize === 0 ? '自动（自适应）' : config.chunkSize}
               </span>
             </div>
             <Slider
-              value={[config.splitPartCount]}
-              onValueChange={(value) => onUpdate({ splitPartCount: Array.isArray(value) ? value[0] : value })}
-              min={2}
-              max={12}
+              value={[config.chunkSize]}
+              onValueChange={(value) => onUpdate({ chunkSize: Array.isArray(value) ? value[0] : value })}
+              min={0}
+              max={50}
               step={1}
               disabled={disabled}
             />
             <p className="text-xs text-muted-foreground">
-              系统会把上传图片按顺序尽量平均切成这些部分，每部分单独生成草稿，最后再合成完整正文。
-              还原原著优先时，建议把分段数调高一些；分得越粗，越容易被压成概述。
+              这个模式同样先做逐页分析，`0` 表示按当前视觉模型自动选择更稳的分组大小。多图识别通常建议保持在 `2-4` 张，然后直接进入整书综合，不再经过分块综合。
             </p>
           </div>
         ) : (

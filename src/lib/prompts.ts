@@ -489,12 +489,12 @@ function buildWritingModeInstruction(writingMode: WritingMode, stage: 'section' 
   if (writingMode === 'literary') {
     return stage === 'polish'
       ? '在不改变关键剧情、人物关系和结局的前提下，增强全书的语言质感、气氛、节奏、衔接与情绪推进，让成文更像成熟小说。'
-      : '在不改变关键剧情、人物关系和事件顺序的前提下，可以适度加强氛围、节奏、心理和叙述张力，让场景更像成熟小说章节。';
+      : '在不改变关键剧情、人物关系和事件顺序的前提下，可以适度加强氛围、节奏、心理和叙述张力，让场景更像成熟小说章节。若来源中存在明确原台词，默认应直接以对白形式进入正文；只允许为贴合上下文、语气衔接和动作配合做小幅措辞调整，不要把大部分台词改写成转述。';
   }
 
   return stage === 'polish'
     ? '以原有章节正文和整书资料为准，优先修正一致性、重复和衔接问题，避免不必要的文学化扩写。'
-    : '优先保证信息准确、承接稳定、事件清晰，少做无依据的延展和过度文学化描写。';
+    : '优先保证信息准确、承接稳定、事件清晰，少做无依据的延展和过度文学化描写。若来源中存在明确原台词，默认直接引用进入正文；只允许为贴合剧情衔接、语气和上下文做小幅修改，不要把明确对白改写成概述性叙述。';
 }
 
 function buildExcerpt(text: string | undefined, headLength = 700, tailLength = 220): string {
@@ -896,6 +896,47 @@ Strictly output JSON:
 ${GLOBAL_SYNTHESIS_OUTPUT_SCHEMA}`;
 }
 
+export function buildDirectPageAnalysisGlobalSynthesisPrompt(
+  pageAnalyses: PageAnalysis[],
+  chunkSyntheses: ChunkSynthesis[]
+): string {
+  const virtualChunkContext = chunkSyntheses.map((chunk) => ({
+    index: chunk.index,
+    pageNumbers: chunk.pageNumbers,
+    title: chunk.title,
+    summary: chunk.summary,
+    keyDevelopments: chunk.keyDevelopments,
+    continuitySummary: chunk.continuitySummary,
+  }));
+  const globalContext = {
+    recurringCharacters: summarizeCharacterContext(pageAnalyses, 12),
+    locationTimeline: buildLocationTimeline(pageAnalyses),
+  };
+
+  return `Below are the page-level analyses for the whole manga. Build a coherent story-level synthesis directly from these page analyses.
+
+Primary source of truth:
+${stringifyPromptData(pageAnalyses)}
+
+Virtual page groups for sceneOutline chunkIndexes and continuity navigation (supporting context only, not the primary source of truth):
+${stringifyPromptData(virtualChunkContext)}
+
+Global continuity context:
+${stringifyPromptData(globalContext)}
+
+Requirements:
+1. Treat the page-level analyses as the primary source of truth for storyOverview, characterGuide, worldGuide, sceneOutline, and writingConstraints.
+2. Use the virtual page groups only as indexing aids for sceneOutline.chunkIndexes and for high-level continuity navigation. Do not let them override clear page-level evidence.
+3. sceneOutline.chunkIndexes must reference existing virtual group indexes only.
+4. A scene may contain one or more chunkIndexes when it spans multiple adjacent virtual page groups.
+5. characterGuide should merge recurring roles, relationship hints, and cross-page changes for the same characters.
+6. writingConstraints should keep only constraints that materially affect later writing consistency.
+7. Return JSON only.
+
+Strictly output JSON:
+${GLOBAL_SYNTHESIS_OUTPUT_SCHEMA}`;
+}
+
 export function buildSectionUserPrompt(
   sectionIndex: number,
   storySynthesis: StorySynthesis,
@@ -905,7 +946,8 @@ export function buildSectionUserPrompt(
   pageAnalyses: PageAnalysis[],
   writingMode: WritingMode,
   writingGuide = '',
-  template = USER_PROMPT_TEMPLATE
+  template = USER_PROMPT_TEMPLATE,
+  includeSceneImages = false
 ): string {
   const runtimeTemplate = template.trim() || USER_PROMPT_TEMPLATE;
   const relatedChunkIndexes = new Set(scenePlan.chunkIndexes);
@@ -1032,7 +1074,18 @@ export function buildSectionUserPrompt(
   ].join('\n');
   const enrichedSceneSourceBlock = [
     'Use the current section as the main source of truth. Use previous and next scene context only to smooth transitions, preserve character consistency, and maintain narrative continuity.',
-    'If the source contains explicit dialogue lines, preserve their concrete wording and corrected speaker attribution whenever the written scene still uses direct speech. Do not paraphrase most dialogue into summary narration.',
+    includeSceneImages
+      ? 'The ordered images for the current scene are attached as auxiliary evidence. Priority order is: manual edits and structured text first, continuity context second, attached images last.'
+      : 'The current scene is provided as structured text only. Treat the structured text and continuity context as the full source of truth.',
+    includeSceneImages
+      ? 'Use attached images only to补充动作、表情、站位、镜头衔接和氛围细节, or to verify ambiguities that remain in the structured text. Do not let the images override confirmed structured dialogue, scene summaries, or manually edited content.'
+      : 'Do not invent visual details that are absent from the structured text.',
+    includeSceneImages
+      ? 'Do not redo OCR from the images or replace the structured dialogue/text extraction with a new interpretation. Keep dialogue, narration text, and scene facts grounded in the provided structured material.'
+      : '',
+    'If the source contains explicit dialogue lines, quote them directly in the prose by default, using the corrected speaker attribution whenever direct speech is still present in the scene.',
+    'You may make small wording edits only when needed for tense, sentence flow, emotional continuity, or scene blocking, but the original wording, intent, and speaker ownership must remain clearly recognizable.',
+    'Do not omit or collapse clear dialogue lines into summary narration unless a tiny adjustment is required to merge an obviously split utterance or remove exact repetition.',
     '',
     `【写作模式】\n${WRITING_MODE_LABELS[writingMode]}：${buildWritingModeInstruction(writingMode, 'section')}`,
     writingGuide.trim()
@@ -1043,7 +1096,7 @@ export function buildSectionUserPrompt(
     '',
     sceneSourceBlock,
     sectionDialogueLedger.length > 0
-      ? `\n【应优先带入成文的原台词】\n这些对白默认应尽量以直接引语进入正文，而不是被大量改写成转述。\n${stringifyPromptData(sectionDialogueLedger)}`
+      ? `\n【应优先带入成文的原台词】\n这些对白默认应直接以引语进入正文；只允许做少量措辞调整来贴合剧情衔接、语气和动作节奏，不要大幅改写成转述或直接漏掉。\n${stringifyPromptData(sectionDialogueLedger)}`
       : '',
     '',
     'Section continuity context',
@@ -1115,9 +1168,10 @@ export function buildSplitDraftFinalSectionPrompt(
     '3. Merge the parts into one smooth, complete Chinese novel body with natural transitions and stable naming, but do not rewrite the whole book from scratch.',
     '4. If a part draft already reads smoothly, keep its wording and paragraph structure as much as possible. Edit mainly to fix boundaries, naming consistency, tense/person reference, and duplicated transitions.',
     '5. In faithful mode, do not significantly shorten the combined part drafts unless you are removing obvious repetition. Preserve content density and important scene beats.',
-    '6. You may smooth repetitions and transitions, but do not invent major plot points, extra motivations, or missing scenes that are not supported by the drafts.',
-    '7. continuitySummary should briefly describe the final overall ending state of the completed novel body.',
-    '8. Return JSON only.',
+    '6. If a part draft already contains explicit dialogue, preserve it as direct speech by default. You may make only small wording edits for smoother scene flow, but do not turn most of it into paraphrased narration.',
+    '7. You may smooth repetitions and transitions, but do not invent major plot points, extra motivations, or missing scenes that are not supported by the drafts.',
+    '8. continuitySummary should briefly describe the final overall ending state of the completed novel body.',
+    '9. Return JSON only.',
     '',
     '[Story synthesis]',
     stringifyPromptData(storyContext),
@@ -1163,10 +1217,11 @@ export function buildWritingPreparationUserPrompt(
     'Requirements:',
     '1. The guide must be reusable across all upcoming sections before drafting starts.',
     '2. Focus on tone, diction, naming consistency, dialogue carry-forward, dialogue handling, paragraph rhythm, perspective consistency, and continuity priorities.',
-    '3. Keep it compact, concrete, and actionable for section drafting.',
-    '4. Do not invent new plot facts, characters, settings, or endings.',
-    '5. The voiceGuide field must be a plain string, not an object or array.',
-    '6. Output JSON only.',
+    '3. The guide should explicitly reinforce this dialogue policy: when the source contains clear original dialogue, drafting should quote it directly by default and allow only small wording edits for scene fit.',
+    '4. Keep it compact, concrete, and actionable for section drafting.',
+    '5. Do not invent new plot facts, characters, settings, or endings.',
+    '6. The voiceGuide field must be a plain string, not an object or array.',
+    '7. Output JSON only.',
     '',
     '[Story synthesis]',
     stringifyPromptData(storyContext),

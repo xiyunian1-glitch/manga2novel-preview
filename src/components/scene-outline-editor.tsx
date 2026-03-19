@@ -288,7 +288,7 @@ export function SceneOutlineEditor({
       setConfirming(true);
       await onConfirmAndContinue();
       setDirty(false);
-      toast.success('场景大纲已确认，继续进入章节写作');
+      toast.success('场景大纲已确认，已进入写作前准备并生成全书统稿');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '场景大纲确认失败');
     } finally {
@@ -306,7 +306,7 @@ export function SceneOutlineEditor({
               sceneOutline 人工确认
             </CardTitle>
             <CardDescription>
-              整书综合已经完成。请先检查并编辑场景划分，再继续进入章节写作。
+              整书综合已经完成。请先检查并编辑场景划分；确认后会先自动生成写作前全书统稿，再进入章节写作。
             </CardDescription>
           </div>
 
@@ -519,7 +519,7 @@ export function SceneOutlineEditor({
             data-action="confirm-outline-continue"
           >
             <Check className="mr-1 h-4 w-4" />
-            {confirming ? '确认中...' : '确认并继续'}
+            {confirming ? '确认中...' : '确认并生成统稿'}
           </Button>
         </div>
       </CardContent>

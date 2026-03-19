@@ -388,7 +388,10 @@ export function getEnabledRequestStages(
   orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
 ): RequestStage[] {
   const enabledStages = REQUEST_STAGES.filter((stage) => (
-    !(orchestratorConfig?.workflowMode === 'split-draft' && stage === 'analyze-pages')
+    !(
+      orchestratorConfig?.workflowMode === 'split-draft'
+      && stage === 'synthesize-chunks'
+    )
   ));
 
   if (orchestratorConfig?.enableFinalPolish) {
@@ -458,7 +461,7 @@ export const WRITING_MODE_LABELS: Record<WritingMode, string> = {
 
 export const WORKFLOW_MODE_LABELS: Record<WorkflowMode, string> = {
   'page-analysis': '逐页分析',
-  'split-draft': '均分生成',
+  'split-draft': '直综合写作',
 };
 
 export const DEFAULT_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';

@@ -235,10 +235,10 @@ export default function Manga2NovelApp() {
     const workflowModeLabel = WORKFLOW_MODE_LABELS[taskState.config.workflowMode];
     const writingModeLabel = WRITING_MODE_LABELS[taskState.creativeSettings.writingMode];
     const workflowSummary = taskState.config.workflowMode === 'split-draft'
-      ? `均分部分：${taskState.config.splitPartCount} 份`
+      ? `逐页分组：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`
       : `逐页分组：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`;
     const synthesisSummary = taskState.config.workflowMode === 'split-draft'
-      ? '生成顺序：均分生成 → 整书综合 → 完整正文'
+      ? '生成顺序：逐页分析 → 整书综合 → 场景确认/统稿 → 章节写作'
       : `分块综合：${taskState.config.synthesisChunkCount} 段`;
 
     return [
@@ -255,7 +255,6 @@ export default function Manga2NovelApp() {
     taskState.config.autoSkipOnError,
     taskState.config.chunkSize,
     taskState.config.enableFinalPolish,
-    taskState.config.splitPartCount,
     taskState.config.synthesisChunkCount,
     taskState.config.workflowMode,
     taskState.creativeSettings.writingMode,

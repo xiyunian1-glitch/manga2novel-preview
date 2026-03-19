@@ -37,6 +37,7 @@ import { callAIText, extractJsonValue } from './api-adapter';
 import {
   buildContextualChunkSynthesisPrompt,
   buildContextualGlobalSynthesisPrompt,
+  buildDirectPageAnalysisGlobalSynthesisPrompt,
   buildFinalPolishSectionSystemPrompt,
   buildFinalPolishSectionUserPrompt,
   buildFinalPolishVoiceGuideSystemPrompt,
@@ -44,7 +45,6 @@ import {
   buildSectionSystemPrompt,
   buildSectionUserPrompt,
   buildSplitDraftChunkPrompt,
-  buildSplitDraftFinalSectionPrompt,
   buildWritingPreparationSystemPrompt,
   buildWritingPreparationUserPrompt,
 } from './prompts';
@@ -1776,6 +1776,26 @@ function createBalancedImageChunks(images: ImageItem[], targetChunkCount: number
   return chunks;
 }
 
+function createSequentialImageChunksBySize(images: ImageItem[], chunkSize: number): ImageChunk[] {
+  if (images.length === 0) {
+    return [];
+  }
+
+  const normalizedChunkSize = Math.max(1, Math.trunc(chunkSize) || 1);
+  const chunks: ImageChunk[] = [];
+
+  for (let index = 0, chunkIndex = 0; index < images.length; index += normalizedChunkSize, chunkIndex += 1) {
+    chunks.push({
+      index: chunkIndex,
+      images: images.slice(index, index + normalizedChunkSize),
+      status: 'pending',
+      retryCount: 0,
+    });
+  }
+
+  return chunks;
+}
+
 export class TaskOrchestrator {
   private state: TaskState;
   private apiConfig: APIConfig | null = null;
@@ -2007,11 +2027,9 @@ export class TaskOrchestrator {
       ? sanitizeNarrativeArray(record.writingConstraints)
       : [...this.state.globalSynthesis.writingConstraints];
     this.markManualEditComplete(this.state.globalSynthesis);
-    this.state.globalSynthesis.outlineConfirmed = this.isSplitDraftMode()
-      ? true
-      : sceneOutlineChanged
-        ? false
-        : outlineConfirmed;
+    this.state.globalSynthesis.outlineConfirmed = sceneOutlineChanged
+      ? false
+      : outlineConfirmed;
     this.state.memory.globalSummary = this.state.globalSynthesis.storyOverview || this.state.memory.globalSummary;
 
     if (sceneOutlineChanged || this.state.novelSections.length === 0) {
@@ -2148,7 +2166,7 @@ export class TaskOrchestrator {
   }
 
   private getInitialStageForCurrentMode(): RequestStage {
-    return this.isSplitDraftMode() ? 'synthesize-chunks' : 'analyze-pages';
+    return 'analyze-pages';
   }
 
   private getReadyImagesInOrder(): ImageItem[] {
@@ -2217,6 +2235,33 @@ export class TaskOrchestrator {
       SECTION_WRITING_TIMEOUT_MS,
       SPLIT_DRAFT_SECTION_TIMEOUT_MS
     );
+  }
+
+  private refreshDerivedChunkSynthesesFromPageAnalyses() {
+    if (!this.isSplitDraftMode()) {
+      return;
+    }
+
+    this.state.chunkSyntheses.forEach((chunkSynthesis) => {
+      const fallback = createFallbackChunkSynthesis(
+        chunkSynthesis.index,
+        this.state.pageAnalyses.filter((page) => page.chunkIndex === chunkSynthesis.index)
+      );
+      chunkSynthesis.title = fallback.title;
+      chunkSynthesis.summary = fallback.summary;
+      chunkSynthesis.draftText = undefined;
+      chunkSynthesis.keyDevelopments = fallback.keyDevelopments;
+      chunkSynthesis.dialogueResolutions = [];
+      chunkSynthesis.continuitySummary = fallback.continuitySummary;
+      chunkSynthesis.status = 'success';
+      chunkSynthesis.error = undefined;
+      chunkSynthesis.retryCount = 0;
+      this.state.chunks[chunkSynthesis.index].status = 'success';
+      this.state.chunks[chunkSynthesis.index].plotSummary = fallback.summary;
+      this.state.chunks[chunkSynthesis.index].endingDetail = fallback.continuitySummary;
+      this.state.chunks[chunkSynthesis.index].novelText = undefined;
+      this.state.chunks[chunkSynthesis.index].error = undefined;
+    });
   }
 
   private async requestChunkSynthesisResult(
@@ -2456,6 +2501,101 @@ export class TaskOrchestrator {
     return this.state.pageAnalyses
       .filter((page) => section.chunkIndexes.includes(page.chunkIndex))
       .map((page) => page.imageName);
+  }
+
+  private getSectionRequestImages(
+    section: NovelSection,
+    labels?: string[]
+  ): Array<{ base64: string; mime: string; label?: string }> {
+    const sectionChunks = this.state.chunks
+      .filter((chunk) => section.chunkIndexes.includes(chunk.index));
+    const sectionImages = sectionChunks.flatMap((chunk) => chunk.images);
+
+    return sectionImages.map((image, imageIndex) => {
+      if (!image.processedBase64 || !image.processedMime) {
+        throw new Error(`Missing processed image data for section ${section.index + 1}, image ${imageIndex + 1}.`);
+      }
+
+      return {
+        base64: image.processedBase64,
+        mime: image.processedMime,
+        label: labels?.[imageIndex],
+      };
+    });
+  }
+
+  private shouldIncludeSceneImagesForSectionWriting(section: NovelSection): boolean {
+    return this.getSectionImageNames(section).length > 0;
+  }
+
+  private shouldFallbackSectionWritingToTextOnly(message: string): boolean {
+    return (
+      isImageInputUnsupportedError(message)
+      || /too many images?|context length|input (?:is )?too (?:long|large)|prompt_tokens|max_seq_len/i.test(message)
+    );
+  }
+
+  private async requestSectionWritingResult(
+    sectionIndex: number,
+    section: NovelSection,
+    scenePlan: ScenePlan
+  ): Promise<{ novelText: string; continuitySummary: string }> {
+    const includeSceneImages = this.shouldIncludeSceneImagesForSectionWriting(section);
+    const sectionImageNames = this.getSectionImageNames(section);
+    const sectionImageLabels = includeSceneImages
+      ? this.state.pageAnalyses
+          .filter((page) => section.chunkIndexes.includes(page.chunkIndex))
+          .map((page) => `[Page ${page.pageNumber}] file=${page.imageName}`)
+      : [];
+    const sectionUserPrompt = buildSectionUserPrompt(
+      sectionIndex,
+      this.state.globalSynthesis,
+      this.findPreviousContinuitySummary(sectionIndex),
+      scenePlan,
+      this.state.chunkSyntheses,
+      this.state.pageAnalyses,
+      this.state.creativeSettings.writingMode,
+      this.state.writingPreparation.voiceGuide,
+      this.state.creativeSettings.userPromptTemplate,
+      includeSceneImages
+    );
+    const requestSectionDraft = (images: Array<{ base64: string; mime: string; label?: string }>, userPromptPlacement?: 'before-media' | 'after-media') => (
+      this.requestStructuredData(
+        section,
+        {
+          stage: 'write-sections',
+          itemLabel: section.title,
+          chunkIndex: sectionIndex,
+          imageNames: sectionImageNames,
+          images,
+          systemPrompt: buildSectionSystemPrompt(this.state.creativeSettings.systemPrompt),
+          userPrompt: sectionUserPrompt,
+          temperature: this.state.creativeSettings.temperature,
+          maxOutputTokens: WRITING_MAX_TOKENS,
+          timeoutMs: SECTION_WRITING_TIMEOUT_MS,
+          userPromptPlacement,
+        },
+        parseSectionResult
+      )
+    );
+
+    if (!includeSceneImages) {
+      return requestSectionDraft([]);
+    }
+
+    try {
+      return await requestSectionDraft(
+        this.getSectionRequestImages(section, sectionImageLabels),
+        'after-media'
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!this.shouldFallbackSectionWritingToTextOnly(errorMessage)) {
+        throw error;
+      }
+
+      return requestSectionDraft([]);
+    }
   }
 
   private getFinalPolishSectionMaxTokens(section: NovelSection): number {
@@ -2718,23 +2858,10 @@ export class TaskOrchestrator {
   }
 
   private initializeSectionsFromGlobalSynthesis() {
-    const sections = this.isSplitDraftMode()
-      ? (
-          this.state.chunkSyntheses.length > 0
-            ? [{
-                index: 0,
-                title: '完整正文',
-                chunkIndexes: this.state.chunkSyntheses.map((chunk) => chunk.index),
-                status: 'pending' as ChunkStatus,
-                runtimeMs: 0,
-                retryCount: 0,
-              }]
-            : []
-        )
-      : createSectionsFromSceneOutline(
-          this.state.globalSynthesis.sceneOutline,
-          this.state.chunkSyntheses
-        );
+    const sections = createSectionsFromSceneOutline(
+      this.state.globalSynthesis.sceneOutline,
+      this.state.chunkSyntheses
+    );
 
     this.state.novelSections = sections.map((section, index) => {
       const existing = this.state.novelSections[index];
@@ -2759,12 +2886,12 @@ export class TaskOrchestrator {
     this.refreshFullNovel();
   }
 
-  private async ensureWritingPreparation(): Promise<void> {
+  private async ensureWritingPreparation(): Promise<boolean> {
     if (
       this.state.writingPreparation.status === 'success'
       || this.state.writingPreparation.status === 'skipped'
     ) {
-      return;
+      return false;
     }
 
     this.state.writingPreparation.status = 'processing';
@@ -2800,6 +2927,7 @@ export class TaskOrchestrator {
       stopTrackedRuntime(this.state.writingPreparation);
       this.state.writingPreparation.retryCount = 0;
       this.emit('chunk-success', 0);
+      return true;
     } catch (error) {
       if (isAbortError(error)) {
         stopTrackedRuntime(this.state.writingPreparation);
@@ -2815,7 +2943,7 @@ export class TaskOrchestrator {
         this.applySkippedWritingPreparation(errorMessage);
         this.emit('chunk-error', 0, errorMessage);
         this.emit('chunk-skip', 0);
-        return;
+        return true;
       }
 
       throw error;
@@ -3003,27 +3131,27 @@ export class TaskOrchestrator {
   }
 
   private getResumeTargetAfterManualEdit(): { stage: RequestStage; chunkIndex: number } | null {
+    const nextPendingBatchIndex = this.findNextPendingPageAnalysisBatchIndex(0);
+    if (nextPendingBatchIndex !== -1) {
+      return {
+        stage: 'analyze-pages',
+        chunkIndex: nextPendingBatchIndex,
+      };
+    }
+
     if (!this.isSplitDraftMode()) {
-      const nextPendingBatchIndex = this.findNextPendingPageAnalysisBatchIndex(0);
-      if (nextPendingBatchIndex !== -1) {
+      const nextPendingChunkIndex = this.findNextPendingChunkSynthesisIndex(0);
+      if (nextPendingChunkIndex !== -1) {
         return {
-          stage: 'analyze-pages',
-          chunkIndex: nextPendingBatchIndex,
+          stage: 'synthesize-chunks',
+          chunkIndex: nextPendingChunkIndex,
         };
       }
     }
 
-    const nextPendingChunkIndex = this.findNextPendingChunkSynthesisIndex(0);
-    if (nextPendingChunkIndex !== -1) {
-      return {
-        stage: 'synthesize-chunks',
-        chunkIndex: nextPendingChunkIndex,
-      };
-    }
-
     if (
       !isTerminalChunkStatus(this.state.globalSynthesis.status, this.state.globalSynthesis.error)
-      || (!this.isSplitDraftMode() && !this.state.globalSynthesis.outlineConfirmed)
+      || !this.state.globalSynthesis.outlineConfirmed
     ) {
       return {
         stage: 'synthesize-story',
@@ -3150,10 +3278,7 @@ export class TaskOrchestrator {
         state.chunkSyntheses.length
       ),
       writingConstraints: [...(normalizedGlobalSynthesis.writingConstraints || [])],
-      outlineConfirmed: Boolean(normalizedGlobalSynthesis.outlineConfirmed) || (
-        state.config.workflowMode === 'split-draft'
-        && (normalizedGlobalSynthesis.status === 'success' || normalizedGlobalSynthesis.status === 'skipped')
-      ),
+      outlineConfirmed: Boolean(normalizedGlobalSynthesis.outlineConfirmed),
     };
     state.pageAnalyses = (state.pageAnalyses || []).map((page) => ({
       ...page,
@@ -3205,8 +3330,8 @@ export class TaskOrchestrator {
       state.status = 'paused';
     }
 
-    if (state.config.workflowMode === 'split-draft' && state.currentStage === 'analyze-pages') {
-      state.currentStage = 'synthesize-chunks';
+    if (state.config.workflowMode === 'split-draft' && state.currentStage === 'synthesize-chunks') {
+      state.currentStage = 'synthesize-story';
     }
 
     if (!wasPreparing) {
@@ -3480,12 +3605,16 @@ export class TaskOrchestrator {
   }
 
   private applySkippedStorySynthesis(errorMessage: string) {
+    if (this.isSplitDraftMode()) {
+      this.refreshDerivedChunkSynthesesFromPageAnalyses();
+    }
+
     const fallback = createFallbackStorySynthesis(this.state.chunkSyntheses);
     this.state.globalSynthesis = {
       ...this.state.globalSynthesis,
       ...fallback,
       status: 'skipped',
-      outlineConfirmed: this.isSplitDraftMode(),
+      outlineConfirmed: false,
       retryCount: 0,
       error: errorMessage,
     };
@@ -3646,10 +3775,19 @@ export class TaskOrchestrator {
     for (let index = startIndex; index < this.state.chunkSyntheses.length; index += 1) {
       const chunk = this.state.chunkSyntheses[index];
       chunk.status = 'pending';
+      chunk.title = undefined;
+      chunk.summary = undefined;
+      chunk.draftText = undefined;
+      chunk.keyDevelopments = [];
+      chunk.dialogueResolutions = [];
+      chunk.continuitySummary = undefined;
       chunk.error = undefined;
       resetTrackedRuntime(chunk);
       chunk.retryCount = 0;
       this.state.chunks[index].status = 'pending';
+      this.state.chunks[index].plotSummary = undefined;
+      this.state.chunks[index].endingDetail = undefined;
+      this.state.chunks[index].novelText = undefined;
       this.state.chunks[index].error = undefined;
     }
 
@@ -3726,10 +3864,10 @@ export class TaskOrchestrator {
 
     const readyImages = images.filter((image) => image.status === 'ready');
     const normalizedChunkSize = this.getEffectivePageAnalysisBatchSize(readyImages.length);
-    const targetChunkCount = this.isSplitDraftMode()
-      ? Math.max(1, Math.trunc(this.state.config.splitPartCount) || 1)
-      : Math.max(1, Math.trunc(this.state.config.synthesisChunkCount) || 1);
-    const chunks = createBalancedImageChunks(readyImages, targetChunkCount);
+    const targetChunkCount = Math.max(1, Math.trunc(this.state.config.synthesisChunkCount) || 1);
+    const chunks = this.isSplitDraftMode()
+      ? createSequentialImageChunksBySize(readyImages, normalizedChunkSize)
+      : createBalancedImageChunks(readyImages, targetChunkCount);
     const pageNumberByImageId = new Map<string, number>();
     readyImages.forEach((image, index) => {
       pageNumberByImageId.set(image.id, index + 1);
@@ -3741,23 +3879,21 @@ export class TaskOrchestrator {
       });
     });
 
-    const pageAnalyses: PageAnalysis[] = this.isSplitDraftMode()
-      ? []
-      : readyImages.map((image, index) => ({
-          index,
-          pageNumber: index + 1,
-          chunkIndex: chunkIndexByImageId.get(image.id) ?? 0,
-          analysisBatchIndex: Math.floor(index / normalizedChunkSize),
-          imageName: image.file.webkitRelativePath || image.file.name,
-          status: 'pending' as ChunkStatus,
-          keyEvents: [],
-          dialogue: [],
-          narrationText: [],
-          visualText: [],
-          characters: [],
-          runtimeMs: 0,
-          retryCount: 0,
-        }));
+    const pageAnalyses: PageAnalysis[] = readyImages.map((image, index) => ({
+      index,
+      pageNumber: index + 1,
+      chunkIndex: chunkIndexByImageId.get(image.id) ?? 0,
+      analysisBatchIndex: Math.floor(index / normalizedChunkSize),
+      imageName: image.file.webkitRelativePath || image.file.name,
+      status: 'pending' as ChunkStatus,
+      keyEvents: [],
+      dialogue: [],
+      narrationText: [],
+      visualText: [],
+      characters: [],
+      runtimeMs: 0,
+      retryCount: 0,
+    }));
 
     const chunkSyntheses: ChunkSynthesis[] = chunks.map((chunk) => ({
       index: chunk.index,
@@ -3806,21 +3942,23 @@ export class TaskOrchestrator {
       this.state.currentChunkIndex = 0;
     }
 
-    if (this.isSplitDraftMode() && this.state.currentStage === 'analyze-pages') {
-      this.state.currentStage = 'synthesize-chunks';
-      this.state.currentChunkIndex = this.getResumeChunkSynthesisIndex(0);
-      this.emit('state-change');
-    }
-
     if (this.state.currentStage === 'analyze-pages') {
       this.state.currentChunkIndex = this.getResumePageAnalysisBatchIndex(this.state.currentChunkIndex);
       const completed = await this.runPageAnalysisStage();
       if (!completed) {
         return;
       }
-      this.state.currentStage = 'synthesize-chunks';
+      this.state.currentStage = this.isSplitDraftMode() ? 'synthesize-story' : 'synthesize-chunks';
       this.state.currentChunkIndex = 0;
       this.emit('state-change');
+    }
+
+    if (this.state.currentStage === 'synthesize-chunks') {
+      if (this.isSplitDraftMode()) {
+        this.state.currentStage = 'synthesize-story';
+        this.state.currentChunkIndex = 0;
+        this.emit('state-change');
+      }
     }
 
     if (this.state.currentStage === 'synthesize-chunks') {
@@ -4079,7 +4217,7 @@ export class TaskOrchestrator {
     }
 
     if (isTerminalChunkStatus(this.state.globalSynthesis.status, this.state.globalSynthesis.error)) {
-      if (!this.state.globalSynthesis.outlineConfirmed && !this.isSplitDraftMode()) {
+      if (!this.state.globalSynthesis.outlineConfirmed) {
         this.stopRuntimeTracking();
         this.state.status = 'paused';
         this.state.currentStage = 'synthesize-story';
@@ -4097,6 +4235,10 @@ export class TaskOrchestrator {
     this.emit('chunk-start', 0);
 
     try {
+      if (this.isSplitDraftMode()) {
+        this.refreshDerivedChunkSynthesesFromPageAnalyses();
+      }
+
       const result = await this.requestStructuredData(
         this.state.globalSynthesis,
         {
@@ -4106,10 +4248,15 @@ export class TaskOrchestrator {
           imageNames: this.getAllImageNames(),
           images: [],
           systemPrompt: GLOBAL_SYNTHESIS_SYSTEM_PROMPT,
-          userPrompt: buildContextualGlobalSynthesisPrompt(
-            this.state.chunkSyntheses,
-            this.state.pageAnalyses
-          ),
+          userPrompt: this.isSplitDraftMode()
+            ? buildDirectPageAnalysisGlobalSynthesisPrompt(
+                this.state.pageAnalyses,
+                this.state.chunkSyntheses
+              )
+            : buildContextualGlobalSynthesisPrompt(
+                this.state.chunkSyntheses,
+                this.state.pageAnalyses
+              ),
           temperature: SYNTHESIS_TEMPERATURE,
           maxOutputTokens: SYNTHESIS_MAX_TOKENS,
           timeoutMs: STORY_SYNTHESIS_TIMEOUT_MS,
@@ -4125,7 +4272,7 @@ export class TaskOrchestrator {
         characterGuide: result.characterGuide,
         sceneOutline: alignSceneOutlineToChunks(result.sceneOutline, this.state.chunkSyntheses),
         writingConstraints: result.writingConstraints,
-        outlineConfirmed: this.isSplitDraftMode(),
+        outlineConfirmed: false,
         retryCount: 0,
         error: undefined,
       };
@@ -4134,9 +4281,6 @@ export class TaskOrchestrator {
       this.initializeSectionsFromGlobalSynthesis();
       this.markSectionsPendingFrom(0);
       this.emit('chunk-success', 0);
-      if (this.isSplitDraftMode()) {
-        return true;
-      }
       this.stopRuntimeTracking();
       this.state.status = 'paused';
       this.state.currentStage = 'synthesize-story';
@@ -4178,10 +4322,9 @@ export class TaskOrchestrator {
       this.initializeSectionsFromGlobalSynthesis();
     }
 
-    const sectionSystemPrompt = buildSectionSystemPrompt(this.state.creativeSettings.systemPrompt);
-
+    let writingPreparationGenerated = false;
     try {
-      await this.ensureWritingPreparation();
+      writingPreparationGenerated = await this.ensureWritingPreparation();
     } catch (error) {
       if (isAbortError(error)) {
         this.stopRuntimeTracking();
@@ -4196,6 +4339,14 @@ export class TaskOrchestrator {
       this.state.status = 'paused';
       this.state.currentChunkIndex = 0;
       this.emit('chunk-error', 0, errorMessage);
+      this.emit('paused');
+      return false;
+    }
+
+    if (writingPreparationGenerated) {
+      this.stopRuntimeTracking();
+      this.state.status = 'paused';
+      this.state.currentChunkIndex = this.getResumeSectionIndex(0);
       this.emit('paused');
       return false;
     }
@@ -4232,50 +4383,7 @@ export class TaskOrchestrator {
       this.emit('chunk-start', index);
 
       try {
-        const sectionImageNames = this.isSplitDraftMode()
-          ? this.getAllImageNames()
-          : this.state.pageAnalyses
-              .filter((page) => section.chunkIndexes.includes(page.chunkIndex))
-              .map((page) => page.imageName);
-        const sectionUserPrompt = this.isSplitDraftMode()
-          ? buildSplitDraftFinalSectionPrompt(
-              this.state.globalSynthesis,
-              this.state.chunkSyntheses,
-              this.state.creativeSettings.writingMode,
-              this.state.writingPreparation.voiceGuide
-            )
-          : buildSectionUserPrompt(
-              index,
-              this.state.globalSynthesis,
-              this.findPreviousContinuitySummary(index),
-              scenePlan,
-              this.state.chunkSyntheses,
-              this.state.pageAnalyses,
-              this.state.creativeSettings.writingMode,
-              this.state.writingPreparation.voiceGuide,
-              this.state.creativeSettings.userPromptTemplate
-            );
-
-        const result = await this.requestStructuredData(
-          section,
-          {
-            stage: 'write-sections',
-            itemLabel: section.title,
-            chunkIndex: index,
-            imageNames: sectionImageNames,
-            images: [],
-            systemPrompt: sectionSystemPrompt,
-            userPrompt: sectionUserPrompt,
-            temperature: this.state.creativeSettings.temperature,
-            maxOutputTokens: this.isSplitDraftMode()
-              ? this.getSplitDraftSectionMaxTokens()
-              : WRITING_MAX_TOKENS,
-            timeoutMs: this.isSplitDraftMode()
-              ? this.getSplitDraftSectionTimeoutMs()
-              : SECTION_WRITING_TIMEOUT_MS,
-          },
-          parseSectionResult
-        );
+        const result = await this.requestSectionWritingResult(index, section, scenePlan);
 
         section.markdownBody = result.novelText;
         section.continuitySummary = result.continuitySummary;
@@ -4819,12 +4927,15 @@ export class TaskOrchestrator {
         break;
       }
       case 'synthesize-story': {
+        if (this.isSplitDraftMode()) {
+          this.refreshDerivedChunkSynthesesFromPageAnalyses();
+        }
         const fallback = createFallbackStorySynthesis(this.state.chunkSyntheses);
         this.state.globalSynthesis = {
           ...this.state.globalSynthesis,
           ...fallback,
           status: 'skipped',
-          outlineConfirmed: this.isSplitDraftMode(),
+          outlineConfirmed: false,
           retryCount: 0,
           error: undefined,
         };
@@ -5036,6 +5147,10 @@ export class TaskOrchestrator {
     this.emit('chunk-start', 0);
 
     try {
+      if (this.isSplitDraftMode()) {
+        this.refreshDerivedChunkSynthesesFromPageAnalyses();
+      }
+
       const result = await this.requestStructuredData(
         this.state.globalSynthesis,
         {
@@ -5045,10 +5160,15 @@ export class TaskOrchestrator {
           imageNames: this.getAllImageNames(),
           images: [],
           systemPrompt: GLOBAL_SYNTHESIS_SYSTEM_PROMPT,
-          userPrompt: buildContextualGlobalSynthesisPrompt(
-            this.state.chunkSyntheses,
-            this.state.pageAnalyses
-          ),
+          userPrompt: this.isSplitDraftMode()
+            ? buildDirectPageAnalysisGlobalSynthesisPrompt(
+                this.state.pageAnalyses,
+                this.state.chunkSyntheses
+              )
+            : buildContextualGlobalSynthesisPrompt(
+                this.state.chunkSyntheses,
+                this.state.pageAnalyses
+              ),
           temperature: SYNTHESIS_TEMPERATURE,
           maxOutputTokens: SYNTHESIS_MAX_TOKENS,
           timeoutMs: STORY_SYNTHESIS_TIMEOUT_MS,
@@ -5064,7 +5184,7 @@ export class TaskOrchestrator {
         characterGuide: result.characterGuide,
         sceneOutline: alignSceneOutlineToChunks(result.sceneOutline, this.state.chunkSyntheses),
         writingConstraints: result.writingConstraints,
-        outlineConfirmed: this.isSplitDraftMode(),
+        outlineConfirmed: false,
         retryCount: 0,
         error: undefined,
       };
@@ -5113,8 +5233,6 @@ export class TaskOrchestrator {
         .join(' '),
       chunkIndexes: section.chunkIndexes,
     };
-    const sectionSystemPrompt = buildSectionSystemPrompt(this.state.creativeSettings.systemPrompt);
-
     try {
       await this.ensureWritingPreparation();
 
@@ -5123,50 +5241,7 @@ export class TaskOrchestrator {
       startTrackedRuntime(section);
       this.emit('chunk-start', sectionIndex);
 
-      const sectionImageNames = this.isSplitDraftMode()
-        ? this.getAllImageNames()
-        : this.state.pageAnalyses
-            .filter((page) => section.chunkIndexes.includes(page.chunkIndex))
-            .map((page) => page.imageName);
-      const sectionUserPrompt = this.isSplitDraftMode()
-        ? buildSplitDraftFinalSectionPrompt(
-            this.state.globalSynthesis,
-            this.state.chunkSyntheses,
-            this.state.creativeSettings.writingMode,
-            this.state.writingPreparation.voiceGuide
-          )
-        : buildSectionUserPrompt(
-            sectionIndex,
-            this.state.globalSynthesis,
-            this.findPreviousContinuitySummary(sectionIndex),
-            scenePlan,
-            this.state.chunkSyntheses,
-            this.state.pageAnalyses,
-            this.state.creativeSettings.writingMode,
-            this.state.writingPreparation.voiceGuide,
-            this.state.creativeSettings.userPromptTemplate
-          );
-
-      const result = await this.requestStructuredData(
-        section,
-        {
-          stage: 'write-sections',
-          itemLabel: section.title,
-          chunkIndex: sectionIndex,
-          imageNames: sectionImageNames,
-          images: [],
-          systemPrompt: sectionSystemPrompt,
-          userPrompt: sectionUserPrompt,
-          temperature: this.state.creativeSettings.temperature,
-          maxOutputTokens: this.isSplitDraftMode()
-            ? this.getSplitDraftSectionMaxTokens()
-            : WRITING_MAX_TOKENS,
-          timeoutMs: this.isSplitDraftMode()
-            ? this.getSplitDraftSectionTimeoutMs()
-            : SECTION_WRITING_TIMEOUT_MS,
-        },
-        parseSectionResult
-      );
+      const result = await this.requestSectionWritingResult(sectionIndex, section, scenePlan);
 
       section.markdownBody = result.novelText;
       section.continuitySummary = result.continuitySummary;

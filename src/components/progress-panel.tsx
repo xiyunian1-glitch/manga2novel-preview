@@ -31,7 +31,6 @@ import {
 } from '@/lib/dialogue-resolution';
 import { getTroubleshootingAdvice } from '@/lib/error-hints';
 import type { ChunkStatus, PipelineStage, RequestStage, TaskState } from '@/lib/types';
-import { WORKFLOW_MODE_LABELS } from '@/lib/types';
 
 interface ProgressPanelProps {
   taskState: TaskState;
@@ -143,16 +142,16 @@ function StatusIcon({ status }: { status: ChunkStatus }) {
   }
 }
 
-function stageLabel(stage: PipelineStage, taskState: TaskState): string {
+function stageLabel(stage: PipelineStage): string {
   if (stage === 'idle') {
     return '空闲';
   }
 
   const labels: Record<RequestStage, string> = {
     'analyze-pages': '逐页分析',
-    'synthesize-chunks': isSplitDraftMode(taskState) ? WORKFLOW_MODE_LABELS['split-draft'] : '分块综合',
+    'synthesize-chunks': '分块综合',
     'synthesize-story': '整书综合',
-    'write-sections': isSplitDraftMode(taskState) ? '完整正文生成' : '章节写作',
+    'write-sections': '章节写作',
     'polish-novel': '全书润色',
   };
 
@@ -164,7 +163,7 @@ function getDisplayStage(taskState: TaskState): RequestStage {
     return taskState.currentStage;
   }
 
-  return isSplitDraftMode(taskState) ? 'synthesize-chunks' : 'analyze-pages';
+  return 'analyze-pages';
 }
 
 function formatPageRange(pageNumbers: number[]): string {
@@ -332,12 +331,23 @@ function buildChunkItems(taskState: TaskState): ProgressItem[] {
 }
 
 function buildStoryItem(taskState: TaskState): ProgressItem[] {
+  const splitDraftMode = isSplitDraftMode(taskState);
+  const sceneCount = taskState.globalSynthesis.sceneOutline.length;
+  const outlineDetail = taskState.globalSynthesis.sceneOutline.map((scene) => {
+    const scopeLabel = splitDraftMode
+      ? ''
+      : `（分块 ${scene.chunkIndexes.map((index) => index + 1).join(' / ')}）`;
+    return `\n- ${scene.title}${scopeLabel}`;
+  }).join('');
+
   return [{
     key: 'story-synthesis',
     stage: 'synthesize-story',
     itemIndex: 0,
     label: '整书综合',
-    meta: `${taskState.chunkSyntheses.length} 个分段 / ${taskState.globalSynthesis.sceneOutline.length} 个场景`,
+    meta: splitDraftMode
+      ? `${taskState.pageAnalyses.length} 页逐页分析 / ${sceneCount} 个场景`
+      : `${taskState.chunkSyntheses.length} 个分块 / ${sceneCount} 个场景`,
     status: taskState.globalSynthesis.status,
     runtimeMs: taskState.globalSynthesis.runtimeMs,
     runtimeStartedAt: taskState.globalSynthesis.runtimeStartedAt,
@@ -352,9 +362,7 @@ function buildStoryItem(taskState: TaskState): ProgressItem[] {
       `世界说明：${taskState.globalSynthesis.worldGuide || '暂无'}`,
       `人物说明：${taskState.globalSynthesis.characterGuide || '暂无'}`,
       `场景大纲：${
-        taskState.globalSynthesis.sceneOutline.map((scene) => (
-          `\n- ${scene.title}（分段 ${scene.chunkIndexes.map((index) => index + 1).join(' / ')}）`
-        )).join('')
+        outlineDetail
         || '\n- 暂无'
       }`,
       `写作约束：${joinValues(taskState.globalSynthesis.writingConstraints)}`,
@@ -382,9 +390,9 @@ function buildSectionItems(taskState: TaskState): ProgressItem[] {
     key: `section-${section.index}`,
     stage: 'write-sections' as const,
     itemIndex: section.index,
-    label: section.title || (isSplitDraftMode(taskState) ? '完整正文' : `第 ${section.index + 1} 节`),
+    label: section.title || `第 ${section.index + 1} 节`,
     meta: isSplitDraftMode(taskState)
-      ? `${section.chunkIndexes.length} 个分段合成`
+      ? `关联 ${section.chunkIndexes.length} 个场景单元`
       : `关联 ${section.chunkIndexes.length} 个分块`,
     status: section.status,
     runtimeMs: section.runtimeMs,
@@ -429,6 +437,9 @@ function buildStageItems(taskState: TaskState, stage: RequestStage): ProgressIte
     case 'analyze-pages':
       return buildPageItem(taskState);
     case 'synthesize-chunks':
+      if (isSplitDraftMode(taskState)) {
+        return [];
+      }
       return buildChunkItems(taskState);
     case 'synthesize-story':
       return buildStoryItem(taskState);
@@ -531,38 +542,39 @@ function getEditDescription(item: ProgressItem): string {
 }
 
 function buildStageCards(taskState: TaskState): StageCard[] {
+  const splitDraftMode = isSplitDraftMode(taskState);
   const cards: StageCard[] = [];
 
-  if (!isSplitDraftMode(taskState)) {
+  cards.push({
+    stage: 'analyze-pages',
+    title: '逐页分析',
+    value: `${countCompleted(taskState.pageAnalyses)} / ${taskState.pageAnalyses.length}`,
+    hint: splitDraftMode ? '整书综合会直接使用这些逐页结果' : '查看每页识别结果',
+  });
+
+  if (!splitDraftMode) {
     cards.push({
-      stage: 'analyze-pages',
-      title: '逐页分析',
-      value: `${countCompleted(taskState.pageAnalyses)} / ${taskState.pageAnalyses.length}`,
-      hint: '查看每页识别结果',
+      stage: 'synthesize-chunks',
+      title: '分块综合',
+      value: `${countCompleted(taskState.chunkSyntheses)} / ${taskState.chunkSyntheses.length}`,
+      hint: '查看每一块的综合结果',
     });
   }
-
-  cards.push({
-    stage: 'synthesize-chunks',
-    title: isSplitDraftMode(taskState) ? WORKFLOW_MODE_LABELS['split-draft'] : '分块综合',
-    value: `${countCompleted(taskState.chunkSyntheses)} / ${taskState.chunkSyntheses.length}`,
-    hint: isSplitDraftMode(taskState) ? '查看每一部分的生成结果' : '查看每一块的综合结果',
-  });
 
   cards.push({
     stage: 'synthesize-story',
     title: '整书综合',
     value: statusLabel(taskState.globalSynthesis.status),
     secondary: taskState.globalSynthesis.outlineConfirmed ? '场景大纲已确认' : '场景大纲待确认',
-    hint: '查看全书故事综合',
+    hint: splitDraftMode ? '基于逐页分析直接做整书综合' : '查看全书故事综合',
   });
 
   cards.push({
     stage: 'write-sections',
-    title: isSplitDraftMode(taskState) ? '完整正文生成' : '章节写作',
+    title: '章节写作',
     value: `${countCompleted(taskState.novelSections)} / ${taskState.novelSections.length}`,
     secondary: taskState.writingPreparation.voiceGuide?.trim() ? '写作前全书统稿已完成' : undefined,
-    hint: isSplitDraftMode(taskState) ? '查看最终正文生成' : '查看各章节正文',
+    hint: '查看各章节正文',
   });
 
   if (taskState.config.enableFinalPolish) {
@@ -630,11 +642,14 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
   const pendingRestoreScrollTopRef = useRef<number | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  const stageCards = useMemo(() => buildStageCards(taskState), [taskState]);
+  const availableStages = useMemo(() => stageCards.map((card) => card.stage), [stageCards]);
+
   useEffect(() => {
-    if (!selectedStage) {
+    if (!selectedStage || !availableStages.includes(selectedStage)) {
       setSelectedStage(getDisplayStage(taskState));
     }
-  }, [selectedStage, taskState]);
+  }, [availableStages, selectedStage, taskState]);
 
   useEffect(() => {
     if (!hasAnyItemRuntimeInProgress(taskState)) {
@@ -649,7 +664,6 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
     return () => window.clearInterval(timerId);
   }, [taskState]);
 
-  const stageCards = useMemo(() => buildStageCards(taskState), [taskState]);
   const displayStage = selectedStage || getDisplayStage(taskState);
   const activeStageItems = useMemo(() => (
     taskState.currentStage === 'idle' ? [] : buildStageItems(taskState, taskState.currentStage)
@@ -662,15 +676,15 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
     ? formatRuntime(getLiveRuntimeMs(activeRuntimeItem.runtimeMs, activeRuntimeItem.runtimeStartedAt, nowMs))
     : null;
 
-  const includePageStage = !isSplitDraftMode(taskState);
-  const totalUnits = (includePageStage ? taskState.pageAnalyses.length : 0)
-    + taskState.chunkSyntheses.length
+  const includeChunkStage = !isSplitDraftMode(taskState);
+  const totalUnits = taskState.pageAnalyses.length
+    + (includeChunkStage ? taskState.chunkSyntheses.length : 0)
     + 1
     + (taskState.novelSections.length > 0 ? 1 : 0)
     + taskState.novelSections.length
     + (taskState.config.enableFinalPolish ? 1 : 0);
-  const completedUnits = (includePageStage ? countCompleted(taskState.pageAnalyses) : 0)
-    + countCompleted(taskState.chunkSyntheses)
+  const completedUnits = countCompleted(taskState.pageAnalyses)
+    + (includeChunkStage ? countCompleted(taskState.chunkSyntheses) : 0)
     + (isCompletedStatus(taskState.globalSynthesis.status, taskState.globalSynthesis.error) ? 1 : 0)
     + (
       taskState.novelSections.length > 0
@@ -786,7 +800,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">处理进度</CardTitle>
           <Badge variant={taskState.status === 'completed' ? 'default' : 'outline'}>
-            {taskState.status === 'completed' ? '全部完成' : stageLabel(taskState.currentStage, taskState)}
+            {taskState.status === 'completed' ? '全部完成' : stageLabel(taskState.currentStage)}
           </Badge>
         </div>
         <div className="space-y-1.5">
@@ -840,10 +854,10 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
         <div className="overflow-hidden rounded-lg border">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div>
-              <div className="text-sm font-medium">{stageLabel(displayStage, taskState)}</div>
+              <div className="text-sm font-medium">{stageLabel(displayStage)}</div>
               <div className="text-[11px] leading-4 text-muted-foreground">
-                {isSplitDraftMode(taskState) && displayStage === 'synthesize-chunks'
-                  ? '均分后的各部分会分别在这里展示'
+                {isSplitDraftMode(taskState) && displayStage === 'analyze-pages'
+                  ? '这些逐页结果会直接进入整书综合，跳过分块综合'
                   : '点击条目可查看详情'}
               </div>
             </div>
