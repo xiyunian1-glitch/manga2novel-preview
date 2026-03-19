@@ -1851,11 +1851,20 @@ function buildSectionWritingImageAttemptCounts(
     }
   };
 
-  pushCount(normalizedImageCount);
-  pushCount(preferredMaxImageCount);
+  const cappedPreferredCount = Math.max(1, Math.min(normalizedImageCount, preferredMaxImageCount));
+  pushCount(cappedPreferredCount);
+
+  if (normalizedImageCount <= cappedPreferredCount) {
+    pushCount(normalizedImageCount);
+  }
 
   if (normalizedImageCount > 2) {
-    pushCount(Math.max(2, Math.ceil(Math.min(preferredMaxImageCount, normalizedImageCount) / 2)));
+    pushCount(Math.max(2, Math.ceil(cappedPreferredCount / 2)));
+  }
+
+  if (normalizedImageCount > cappedPreferredCount) {
+    pushCount(Math.max(2, Math.ceil(cappedPreferredCount / 2)));
+    pushCount(Math.min(normalizedImageCount, 3));
   }
 
   return counts;
@@ -2617,7 +2626,7 @@ export class TaskOrchestrator {
   }
 
   private shouldRetrySectionWritingWithReducedImages(message: string): boolean {
-    return /too many images?|context length|input (?:is )?too (?:long|large)|prompt_tokens|max_seq_len|prompt is too long/i.test(message);
+    return /too many images?|context length|input (?:is )?too (?:long|large)|prompt_tokens|max_seq_len|prompt is too long|returned an empty completion|completion_tokens\s*=\s*0|blocked or discarded the response/i.test(message);
   }
 
   private shouldFallbackSectionWritingToTextOnly(message: string): boolean {
