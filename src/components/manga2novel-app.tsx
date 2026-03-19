@@ -84,6 +84,18 @@ function requestTraceStatusLabel(status?: LastAIRequest['status']): string {
   }
 }
 
+function formatRequestImageSummary(request?: LastAIRequest): string {
+  if (!request || request.imageCount <= 0 || request.imageNames.length === 0) {
+    return '未附带图片';
+  }
+
+  if (request.imageNames.length <= 10) {
+    return request.imageNames.join('、');
+  }
+
+  return `${request.imageNames.slice(0, 10).join('、')} 等 ${request.imageNames.length} 张`;
+}
+
 export default function Manga2NovelApp() {
   const [lastRequestOpen, setLastRequestOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -467,7 +479,7 @@ export default function Manga2NovelApp() {
           <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">总尝试次数：</span>{lastAIRequest?.totalAttempts || 0}</div>
           <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">图片数：</span>{lastAIRequest ? `${lastAIRequest.imageCount} 张` : '暂无'}</div>
           <div className="min-w-0 [overflow-wrap:anywhere]"><span className="font-medium">最近发送：</span>{formatRequestTimestamp(lastAIRequest?.sentAt)}</div>
-          <div className="min-w-0 [overflow-wrap:anywhere] sm:col-span-2"><span className="font-medium">图片：</span>{lastAIRequest?.imageNames.join('、') || '暂无'}</div>
+          <div className="min-w-0 [overflow-wrap:anywhere] sm:col-span-2"><span className="font-medium">图片：</span>{formatRequestImageSummary(lastAIRequest)}</div>
           <div className="min-w-0 [overflow-wrap:anywhere] sm:col-span-2"><span className="font-medium">接口地址：</span>{lastAIRequest?.baseUrl || '默认地址'}</div>
         </div>
         <ScrollArea className="h-[420px] rounded-lg border border-border bg-muted/20 p-3">

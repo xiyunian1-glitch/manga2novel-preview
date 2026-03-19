@@ -629,6 +629,33 @@ function buildLocationTimeline(pageAnalyses: PageAnalysis[]) {
     .sort((left, right) => left.chunkIndex - right.chunkIndex);
 }
 
+function buildCompactGlobalPageAnalysisSource(pageAnalyses: PageAnalysis[]) {
+  return pageAnalyses.map((page) => ({
+    pageNumber: page.pageNumber,
+    chunkIndex: page.chunkIndex,
+    summary: compactPromptText(page.summary, 140),
+    location: compactPromptText(page.location, 40),
+    timeHint: compactPromptText(page.timeHint, 40),
+    keyEvents: compactPromptList(page.keyEvents, 4, 72),
+    dialogue: page.dialogue
+      .filter((line) => Boolean(line.text.trim()))
+      .slice(0, 3)
+      .map((line) => ({
+        speaker: compactPromptText(line.speaker, 16),
+        text: compactPromptText(line.text, 56),
+      })),
+    narrationText: compactPromptList(page.narrationText, 2, 60),
+    visualText: compactPromptList(page.visualText, 2, 50),
+    characters: page.characters
+      .slice(0, 4)
+      .map((character) => ({
+        name: compactPromptText(character.name, 20),
+        role: compactPromptText(character.role, 42),
+        relationshipHints: compactPromptList(character.relationshipHints, 2, 42),
+      })),
+  }));
+}
+
 function buildChunkDialogueResolutionAudit(pageAnalyses: PageAnalysis[]) {
   return pageAnalyses.flatMap((page) => page.dialogue.map((line, index) => ({
     pageNumber: page.pageNumber,
@@ -951,13 +978,14 @@ export function buildDirectPageAnalysisGlobalSynthesisPrompt(
   chunkSyntheses: ChunkSynthesis[]
 ): string {
   const targetSceneCount = chunkSyntheses.length;
+  const compactPageAnalyses = buildCompactGlobalPageAnalysisSource(pageAnalyses);
   const virtualChunkContext = chunkSyntheses.map((chunk) => ({
     index: chunk.index,
     pageNumbers: chunk.pageNumbers,
     title: chunk.title,
-    summary: chunk.summary,
-    keyDevelopments: chunk.keyDevelopments,
-    continuitySummary: chunk.continuitySummary,
+    summary: compactPromptText(chunk.summary, 180),
+    keyDevelopments: compactPromptList(chunk.keyDevelopments, 4, 72),
+    continuitySummary: compactPromptText(chunk.continuitySummary, 140),
   }));
   const globalContext = {
     recurringCharacters: summarizeCharacterContext(pageAnalyses, 12),
@@ -967,7 +995,7 @@ export function buildDirectPageAnalysisGlobalSynthesisPrompt(
   return `Below are the page-level analyses for the whole manga. Build a coherent story-level synthesis directly from these page analyses.
 
 Primary source of truth:
-${stringifyPromptData(pageAnalyses)}
+${stringifyPromptData(compactPageAnalyses)}
 
 Virtual page groups for sceneOutline chunkIndexes and continuity navigation (supporting context only, not the primary source of truth):
 ${stringifyPromptData(virtualChunkContext)}

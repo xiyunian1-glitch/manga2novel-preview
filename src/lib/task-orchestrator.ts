@@ -1474,6 +1474,12 @@ function isSafetyFilteringError(message: string): boolean {
   return /content triggered safety filtering|safety filtering|blocked or discarded the response/i.test(message);
 }
 
+function shouldRecoverStorySynthesisWithFallback(message: string): boolean {
+  return isEmptyCompletionError(message)
+    || isInputTokenLimitError(message)
+    || isSafetyFilteringError(message);
+}
+
 function shouldRecoverWritingPreparationWithFallback(message: string): boolean {
   return isEmptyCompletionError(message)
     || isInputTokenLimitError(message)
@@ -3824,6 +3830,25 @@ export class TaskOrchestrator {
     this.emit('chunk-skip', 0);
   }
 
+  private recoverStorySynthesisWithFallback() {
+    if (this.isSplitDraftMode()) {
+      this.refreshDerivedChunkSynthesesFromPageAnalyses();
+    }
+
+    const fallback = createFallbackStorySynthesis(this.state.chunkSyntheses);
+    this.state.globalSynthesis = {
+      ...this.state.globalSynthesis,
+      ...fallback,
+      status: 'success',
+      outlineConfirmed: true,
+      retryCount: 0,
+      error: undefined,
+    };
+    this.state.memory.globalSummary = fallback.storyOverview || this.state.memory.globalSummary;
+    this.initializeSectionsFromGlobalSynthesis();
+    this.markSectionsPendingFrom(0);
+  }
+
   private applySkippedSection(index: number, errorMessage: string) {
     const section = this.state.novelSections[index];
     if (!section) {
@@ -4443,7 +4468,7 @@ export class TaskOrchestrator {
           stage: 'synthesize-story',
           itemLabel: '整书综合',
           chunkIndex: 0,
-          imageNames: this.getAllImageNames(),
+          imageNames: [],
           images: [],
           systemPrompt: GLOBAL_SYNTHESIS_SYSTEM_PROMPT,
           userPrompt: this.isSplitDraftMode()
@@ -4491,6 +4516,11 @@ export class TaskOrchestrator {
 
       const errorMessage = error instanceof Error ? error.message : String(error);
       stopTrackedRuntime(this.state.globalSynthesis);
+      if (shouldRecoverStorySynthesisWithFallback(errorMessage)) {
+        this.recoverStorySynthesisWithFallback();
+        this.emit('chunk-success', 0);
+        return true;
+      }
       this.state.globalSynthesis.status = 'error';
       this.state.globalSynthesis.error = errorMessage;
       if (this.shouldAutoSkipOnError()) {
@@ -4685,6 +4715,7 @@ export class TaskOrchestrator {
     const model = this.resolveModelForStage(request.stage);
     const providerDisplayName = stageAPIConfig.providerLabel?.trim()
       || PROVIDER_DISPLAY_NAMES[stageAPIConfig.provider];
+    const attachedImageNames = request.images.length > 0 ? request.imageNames : [];
     let requestTrace: LastAIRequest = {
       provider: stageAPIConfig.provider,
       providerLabel: providerDisplayName,
@@ -4693,8 +4724,8 @@ export class TaskOrchestrator {
       stage: request.stage,
       itemLabel: request.itemLabel,
       chunkIndex: request.chunkIndex,
-      imageCount: request.imageNames.length,
-      imageNames: request.imageNames,
+      imageCount: request.images.length,
+      imageNames: attachedImageNames,
       systemPrompt: request.systemPrompt,
       userPrompt: request.userPrompt,
       sentAt: new Date().toISOString(),
@@ -5346,7 +5377,7 @@ export class TaskOrchestrator {
           stage: 'synthesize-story',
           itemLabel: '整书综合',
           chunkIndex: 0,
-          imageNames: this.getAllImageNames(),
+          imageNames: [],
           images: [],
           systemPrompt: GLOBAL_SYNTHESIS_SYSTEM_PROMPT,
           userPrompt: this.isSplitDraftMode()
@@ -5393,6 +5424,12 @@ export class TaskOrchestrator {
 
       const errorMessage = error instanceof Error ? error.message : String(error);
       stopTrackedRuntime(this.state.globalSynthesis);
+      if (shouldRecoverStorySynthesisWithFallback(errorMessage)) {
+        this.recoverStorySynthesisWithFallback();
+        this.emit('chunk-success', 0);
+        this.pauseAfterSingleItemReplay('synthesize-story', 0);
+        return;
+      }
       this.state.globalSynthesis.status = 'error';
       this.state.globalSynthesis.error = errorMessage;
       this.emit('chunk-error', 0, errorMessage);
