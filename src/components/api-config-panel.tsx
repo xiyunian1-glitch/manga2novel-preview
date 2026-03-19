@@ -200,6 +200,20 @@ function createShowQuickRouteKeysState(): Record<QuickRouteId, boolean> {
   };
 }
 
+function createQuickRoutePickerState(): Record<QuickRouteId, boolean> {
+  return {
+    analysis: false,
+    writing: false,
+  };
+}
+
+function createQuickRouteFetchingState(): Record<QuickRouteId, boolean> {
+  return {
+    analysis: false,
+    writing: false,
+  };
+}
+
 function cloneStageAPIOverrides(overrides: StageAPIOverrideMap): StageAPIOverrideMap {
   return REQUEST_STAGES.reduce((result, stage) => {
     result[stage] = { ...overrides[stage] };
@@ -307,6 +321,44 @@ function getQuickRouteState(stages: RequestStage[], overrides: StageAPIOverrideM
   };
 }
 
+function groupModelsByVendor(models: ModelOption[]): Array<[string, ModelOption[]]> {
+  const groups = new Map<string, ModelOption[]>();
+  models.forEach((item) => {
+    const vendor = getVendorLabel(item);
+    const current = groups.get(vendor) || [];
+    current.push(item);
+    groups.set(vendor, current);
+  });
+  return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, 'zh-CN'));
+}
+
+function findSelectedModel(
+  currentModel: string,
+  groupedModels: Array<[string, ModelOption[]]>,
+  models: ModelOption[]
+): ModelOption | undefined {
+  const normalizedModel = currentModel.trim();
+  if (!normalizedModel) {
+    return undefined;
+  }
+
+  for (const [, vendorModels] of groupedModels) {
+    const found = vendorModels.find((item) => item.id === normalizedModel);
+    if (found) {
+      return found;
+    }
+  }
+
+  return models.find((item) => item.id === normalizedModel);
+}
+
+function createQuickRouteModelOptionsState(overrides: StageAPIOverrideMap): Record<QuickRouteId, ModelOption[]> {
+  return {
+    analysis: getDefaultModelsForProvider(getQuickRouteState(QUICK_ROUTE_GROUPS[0].stages, overrides).representative.provider),
+    writing: getDefaultModelsForProvider(getQuickRouteState(QUICK_ROUTE_GROUPS[1].stages, overrides).representative.provider),
+  };
+}
+
 export function APIConfigPanel({
   config,
   profiles,
@@ -338,7 +390,16 @@ export function APIConfigPanel({
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [showQuickRouteKeys, setShowQuickRouteKeys] = useState<Record<QuickRouteId, boolean>>(createShowQuickRouteKeysState);
+  const [quickRouteModels, setQuickRouteModels] = useState<Record<QuickRouteId, ModelOption[]>>(
+    createQuickRouteModelOptionsState(config.stageAPIOverrides)
+  );
+  const [quickRouteModelPickerOpen, setQuickRouteModelPickerOpen] = useState<Record<QuickRouteId, boolean>>(
+    createQuickRoutePickerState
+  );
   const [fetchingModels, setFetchingModels] = useState(false);
+  const [quickRouteFetchingModels, setQuickRouteFetchingModels] = useState<Record<QuickRouteId, boolean>>(
+    createQuickRouteFetchingState
+  );
   const [showRoutingOptions, setShowRoutingOptions] = useState(false);
   const [profileAction, setProfileAction] = useState<'save' | 'switch' | 'duplicate' | 'delete' | null>(null);
 
@@ -369,6 +430,9 @@ export function APIConfigPanel({
     setModelPickerOpen(false);
     setShowKey(false);
     setShowQuickRouteKeys(createShowQuickRouteKeysState());
+    setQuickRouteModels(createQuickRouteModelOptionsState(config.stageAPIOverrides));
+    setQuickRouteModelPickerOpen(createQuickRoutePickerState());
+    setQuickRouteFetchingModels(createQuickRouteFetchingState());
     setShowRoutingOptions(false);
   }, [activeProfile?.name, config]);
 
@@ -400,32 +464,12 @@ export function APIConfigPanel({
     }, { ...DEFAULT_STAGE_API_OVERRIDES }),
   }), [apiKey, baseUrl, model, provider, providerLabel, stageAPIOverrides, stageModels]);
 
-  const groupedModels = useMemo(() => {
-    const groups = new Map<string, ModelOption[]>();
-    models.forEach((item) => {
-      const vendor = getVendorLabel(item);
-      const current = groups.get(vendor) || [];
-      current.push(item);
-      groups.set(vendor, current);
-    });
-    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, 'zh-CN'));
-  }, [models]);
+  const groupedModels = useMemo(() => groupModelsByVendor(models), [models]);
 
-  const selectedModel = useMemo(() => {
-    const normalizedModel = model.trim();
-    if (!normalizedModel) {
-      return undefined;
-    }
-
-    for (const [, vendorModels] of groupedModels) {
-      const found = vendorModels.find((item) => item.id === normalizedModel);
-      if (found) {
-        return found;
-      }
-    }
-
-    return models.find((item) => item.id === normalizedModel);
-  }, [groupedModels, model, models]);
+  const selectedModel = useMemo(
+    () => findSelectedModel(model, groupedModels, models),
+    [groupedModels, model, models]
+  );
 
   const selectedServicePresetId = useMemo(
     () => resolveServicePresetId(provider, baseUrl, providerLabel),
@@ -436,6 +480,10 @@ export function APIConfigPanel({
     analysis: getQuickRouteState(QUICK_ROUTE_GROUPS[0].stages, stageAPIOverrides),
     writing: getQuickRouteState(QUICK_ROUTE_GROUPS[1].stages, stageAPIOverrides),
   }), [stageAPIOverrides]);
+  const quickRouteGroupedModels = useMemo<Record<QuickRouteId, Array<[string, ModelOption[]]>>>(() => ({
+    analysis: groupModelsByVendor(quickRouteModels.analysis),
+    writing: groupModelsByVendor(quickRouteModels.writing),
+  }), [quickRouteModels]);
 
   const summaryItems = useMemo(() => {
     const analysisLabel = quickRouteStates.analysis.anyEnabled
@@ -526,6 +574,11 @@ export function APIConfigPanel({
       });
       return next;
     });
+    setQuickRouteModels((prev) => ({
+      ...prev,
+      [routeId]: getDefaultModelsForProvider(preset.provider),
+    }));
+    setQuickRouteModelPickerOpen((prev) => ({ ...prev, [routeId]: false }));
   };
 
   const handleToggleQuickRoute = (routeId: QuickRouteId, enabled: boolean) => {
@@ -599,6 +652,40 @@ export function APIConfigPanel({
       toast.error(error instanceof Error ? error.message : '获取模型失败');
     } finally {
       setFetchingModels(false);
+    }
+  };
+
+  const handleFetchQuickRouteModels = async (routeId: QuickRouteId) => {
+    const routeState = quickRouteStates[routeId];
+    const routeLabel = QUICK_ROUTE_GROUPS.find((group) => group.id === routeId)?.label || '该流程';
+    const resolvedApiKey = routeState.representative.apiKey.trim() || apiKey.trim();
+
+    if (!resolvedApiKey) {
+      toast.error(`请先填写${routeLabel}的 API Key，再获取模型列表。`);
+      return;
+    }
+
+    try {
+      setQuickRouteFetchingModels((prev) => ({ ...prev, [routeId]: true }));
+      const nextModels = await onFetchModels({
+        provider: routeState.representative.provider,
+        providerLabel: routeState.representative.providerLabel?.trim()
+          || PROVIDER_DISPLAY_NAMES[routeState.representative.provider],
+        apiKey: resolvedApiKey,
+        baseUrl: routeState.representative.baseUrl?.trim() || '',
+      });
+
+      if (nextModels.length === 0) {
+        toast.warning(`${routeLabel} 没有拿到模型列表，已保留当前预置模型。`);
+        return;
+      }
+
+      setQuickRouteModels((prev) => ({ ...prev, [routeId]: nextModels }));
+      toast.success(`${routeLabel} 已获取 ${nextModels.length} 个可用模型。`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `${routeLabel} 获取模型失败`);
+    } finally {
+      setQuickRouteFetchingModels((prev) => ({ ...prev, [routeId]: false }));
     }
   };
 
@@ -1022,6 +1109,17 @@ export function APIConfigPanel({
                           routeState.representative.baseUrl,
                           routeState.representative.providerLabel
                         );
+                        const routeModels = quickRouteModels[group.id];
+                        const routeGroupedModels = quickRouteGroupedModels[group.id];
+                        const routeSelectedModel = findSelectedModel(
+                          routeState.representative.model,
+                          routeGroupedModels,
+                          routeModels
+                        );
+                        const routeCanFetchModels = !disabled
+                          && !profileBusy
+                          && !quickRouteFetchingModels[group.id]
+                          && Boolean((routeState.representative.apiKey.trim() || apiKey.trim()));
 
                         return (
                           <div key={group.id} className="rounded-xl border bg-background/80 p-4">
@@ -1087,6 +1185,80 @@ export function APIConfigPanel({
 
                                   <div className="space-y-2">
                                     <Label>模型</Label>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <Label>模型</Label>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-7 px-2"
+                                          onClick={() => handleFetchQuickRouteModels(group.id)}
+                                          disabled={!routeCanFetchModels}
+                                          data-action="fetch-quick-route-models"
+                                          data-route-id={group.id}
+                                        >
+                                          <RefreshCw className={`mr-1 h-3.5 w-3.5 ${quickRouteFetchingModels[group.id] ? 'animate-spin' : ''}`} />
+                                          获取模型
+                                        </Button>
+                                        <Popover
+                                          open={quickRouteModelPickerOpen[group.id]}
+                                          onOpenChange={(open) => setQuickRouteModelPickerOpen((prev) => ({ ...prev, [group.id]: open }))}
+                                        >
+                                          <PopoverTrigger
+                                            render={(
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                role="combobox"
+                                                aria-expanded={quickRouteModelPickerOpen[group.id]}
+                                                className="h-7 px-2 font-normal"
+                                                disabled={disabled || profileBusy}
+                                                data-action="open-quick-route-model-picker"
+                                                data-route-id={group.id}
+                                              >
+                                                <span className="truncate text-left">
+                                                  {routeSelectedModel?.name || '从列表选择'}
+                                                </span>
+                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                              </Button>
+                                            )}
+                                          />
+                                          <PopoverContent className="z-[9999] w-[min(32rem,calc(100vw-2rem))] p-0" sideOffset={12} align="end">
+                                            <Command shouldFilter>
+                                              <CommandInput placeholder="搜索模型或厂商" />
+                                              <CommandList className="max-h-96">
+                                                <CommandEmpty>没有匹配的模型</CommandEmpty>
+                                                {routeGroupedModels.map(([vendor, vendorModels], groupIndex) => (
+                                                  <div key={`${group.id}-${vendor}`}>
+                                                    {groupIndex > 0 ? <CommandSeparator /> : null}
+                                                    <CommandGroup heading={vendor}>
+                                                      {vendorModels.map((item) => (
+                                                        <CommandItem
+                                                          key={`${group.id}-${item.id}`}
+                                                          value={`${vendor} ${item.name} ${item.id}`}
+                                                          onSelect={() => {
+                                                            handleQuickRouteChange(group.id, { model: item.id });
+                                                            setQuickRouteModelPickerOpen((prev) => ({ ...prev, [group.id]: false }));
+                                                          }}
+                                                          className="gap-3"
+                                                        >
+                                                          <Check className={cn('h-4 w-4', routeState.representative.model.trim() === item.id ? 'opacity-100' : 'opacity-0')} />
+                                                          <div className="min-w-0 flex-1">
+                                                            <div className="truncate" title={item.name}>{item.name}</div>
+                                                            <div className="truncate text-xs text-muted-foreground" title={item.id}>{item.id}</div>
+                                                          </div>
+                                                        </CommandItem>
+                                                      ))}
+                                                    </CommandGroup>
+                                                  </div>
+                                                ))}
+                                              </CommandList>
+                                            </Command>
+                                          </PopoverContent>
+                                        </Popover>
+                                      </div>
+                                    </div>
                                     <Input
                                       value={routeState.representative.model}
                                       onChange={(event) => handleQuickRouteChange(group.id, { model: event.target.value })}
