@@ -392,7 +392,8 @@ const SECTION_SYSTEM_PROMPT_BODY = `## 你的任务
 5. 不要提到“漫画、分镜、画格、镜头、气泡”等元信息。
 6. 如遇敏感画面，只保留剧情推进所必需的信息，避免露骨描写。
 7. 不要输出 [1]、[2]、[^1] 这类引用标记、脚注、来源编号或检索注释。
-8. 只返回 JSON，不要附加 Markdown 代码块或额外说明。
+8. 所有中文输出必须统一使用简体中文，不要输出繁体中文。
+9. 只返回 JSON，不要附加 Markdown 代码块或额外说明。
 ${SECTION_OUTPUT_SCHEMA}`;
 
 const FINAL_POLISH_SYSTEM_PROMPT_BODY = `## 你的任务
@@ -403,7 +404,8 @@ const FINAL_POLISH_SYSTEM_PROMPT_BODY = `## 你的任务
 2. 优先修正前后称呼、时序、语气、重复、衔接断裂和文风不统一的问题。
 3. 可以优化句段表达、节奏和章节过渡，但不要把原稿改成另一部故事。
 4. 如果原稿已经稳定，优先轻修，不要为了“更文学”而过度改写。
-5. 只返回 JSON，不要附加 Markdown 代码块或额外说明。
+5. 所有中文输出必须统一使用简体中文，不要输出繁体中文。
+6. 只返回 JSON，不要附加 Markdown 代码块或额外说明。
 ${FINAL_POLISH_OUTPUT_SCHEMA}`;
 
 const FINAL_POLISH_VOICE_GUIDE_OUTPUT_SCHEMA = `{
@@ -422,7 +424,8 @@ Create a compact editing guide that can be reused to polish sections one by one 
 2. Focus on narrative voice, naming consistency, dialogue formatting, paragraph rhythm, emotional intensity, and continuity priorities.
 3. Do not invent new plot points, characters, settings, or endings.
 4. The voiceGuide field must be a plain string, not an object or array.
-5. Return JSON only, without Markdown code fences or extra explanation.
+5. If you output Chinese, use Simplified Chinese only. Never output Traditional Chinese.
+6. Return JSON only, without Markdown code fences or extra explanation.
 ${FINAL_POLISH_VOICE_GUIDE_OUTPUT_SCHEMA}`;
 
 const WRITING_PREPARATION_SYSTEM_PROMPT_BODY = `## Your task
@@ -434,7 +437,8 @@ Create a compact whole-book unification guide that can be reused across every se
 3. Do not invent new plot points, characters, settings, or endings.
 4. Base the guide only on the provided synthesis materials.
 5. The voiceGuide field must be a plain string, not an object or array.
-6. Return JSON only, without Markdown code fences or extra explanation.
+6. If you output Chinese, use Simplified Chinese only. Never output Traditional Chinese.
+7. Return JSON only, without Markdown code fences or extra explanation.
 ${WRITING_PREPARATION_OUTPUT_SCHEMA}`;
 
 const FINAL_POLISH_SECTION_SYSTEM_PROMPT_BODY = `## Your task
@@ -445,7 +449,8 @@ Lightly polish only the current section so that its tone, naming, rhythm, and co
 2. Prefer light-to-moderate editing. Do not rewrite the section into a different story.
 3. Keep names, pronouns, dialogue style, and tone consistent with the provided guide and continuity context.
 4. Maintain smooth transitions with nearby sections, but do not pull in events that belong to adjacent sections.
-5. Return JSON only, without Markdown code fences or extra explanation.
+5. If you output Chinese, use Simplified Chinese only. Never output Traditional Chinese.
+6. Return JSON only, without Markdown code fences or extra explanation.
 ${FINAL_POLISH_OUTPUT_SCHEMA}`;
 
 function stringifyPromptData(data: unknown): string {

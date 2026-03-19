@@ -20,6 +20,7 @@
   TaskState,
   WritingPreparation,
 } from './types';
+import * as OpenCC from 'opencc-js';
 import {
   DEFAULT_CREATIVE_SETTINGS,
   DEFAULT_FINAL_POLISH,
@@ -48,6 +49,9 @@ import {
   buildWritingPreparationSystemPrompt,
   buildWritingPreparationUserPrompt,
 } from './prompts';
+
+const traditionalToSimplifiedTwConverter = OpenCC.Converter({ from: 'tw', to: 'cn' });
+const traditionalToSimplifiedHkConverter = OpenCC.Converter({ from: 'hk', to: 'cn' });
 
 export type TaskEventType =
   | 'state-change'
@@ -318,8 +322,18 @@ function stripJapaneseKanaFragments(text: string): string {
   return normalizeTextAfterJapaneseCleanup(text.replace(JAPANESE_KANA_GLOBAL_PATTERN, ''));
 }
 
+function convertTraditionalChineseToSimplified(text: string): string {
+  if (!text.trim()) {
+    return text;
+  }
+
+  return traditionalToSimplifiedHkConverter(traditionalToSimplifiedTwConverter(text));
+}
+
 function sanitizeNarrativeText(value: string | undefined): string {
-  return stripJapaneseKanaFragments(convertJapaneseSoundEffects(stripCitationMarkers(stripCodeFence(String(value || '')))))
+  return convertTraditionalChineseToSimplified(
+    stripJapaneseKanaFragments(convertJapaneseSoundEffects(stripCitationMarkers(stripCodeFence(String(value || '')))))
+  )
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
