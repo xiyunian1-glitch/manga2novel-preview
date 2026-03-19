@@ -2800,6 +2800,15 @@ export class TaskOrchestrator {
     );
   }
 
+  private shouldRetryFinalPolishVoiceGuideWithCompact(errorMessage: string): boolean {
+    return (
+      isTruncatedCompletionError(errorMessage)
+      || isInputTokenLimitError(errorMessage)
+      || isEmptyCompletionError(errorMessage)
+      || /timed? out|timeout|没有完成/i.test(errorMessage)
+    );
+  }
+
   private buildCompactFinalPolishStorySynthesis(): StorySynthesis {
     return {
       ...this.state.globalSynthesis,
@@ -2975,19 +2984,22 @@ export class TaskOrchestrator {
       this.state.finalPolish.phase = 'build-voice-guide';
       this.state.finalPolish.currentSectionIndex = 0;
 
-      const guideResult = await this.requestStructuredData(
+      const requestVoiceGuide = (compactMode: boolean) => this.requestStructuredData(
         this.state.finalPolish,
         {
           stage: 'polish-novel',
-          itemLabel: '全书润色：统一口吻指南',
+          itemLabel: compactMode
+            ? '全书润色：统一口吻指南（紧凑重试）'
+            : '全书润色：统一口吻指南',
           chunkIndex: 0,
           imageNames: this.state.pageAnalyses.map((page) => page.imageName),
           images: [],
           systemPrompt: buildFinalPolishVoiceGuideSystemPrompt(this.state.creativeSettings.systemPrompt),
           userPrompt: buildFinalPolishVoiceGuideUserPrompt(
-            this.state.globalSynthesis,
+            compactMode ? this.buildCompactFinalPolishStorySynthesis() : this.state.globalSynthesis,
             sourceSections,
-            this.state.creativeSettings.writingMode
+            this.state.creativeSettings.writingMode,
+            compactMode
           ),
           temperature: Math.min(this.state.creativeSettings.temperature, 0.7),
           maxOutputTokens: 2048,
@@ -2995,6 +3007,18 @@ export class TaskOrchestrator {
         },
         parseFinalPolishVoiceGuideResult
       );
+
+      let guideResult: { voiceGuide: string };
+      try {
+        guideResult = await requestVoiceGuide(false);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (!this.shouldRetryFinalPolishVoiceGuideWithCompact(errorMessage)) {
+          throw error;
+        }
+
+        guideResult = await requestVoiceGuide(true);
+      }
 
       this.state.finalPolish.voiceGuide = guideResult.voiceGuide;
     }

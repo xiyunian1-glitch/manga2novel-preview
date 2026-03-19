@@ -522,6 +522,36 @@ function buildExcerpt(text: string | undefined, headLength = 700, tailLength = 2
   return parts.join('\n...\n');
 }
 
+function selectEvenlyDistributedPromptIndexes(totalCount: number, targetCount: number): number[] {
+  const normalizedTotalCount = Math.max(0, Math.trunc(totalCount) || 0);
+  const normalizedTargetCount = Math.max(0, Math.min(normalizedTotalCount, Math.trunc(targetCount) || 0));
+
+  if (normalizedTargetCount <= 0) {
+    return [];
+  }
+
+  if (normalizedTargetCount >= normalizedTotalCount) {
+    return Array.from({ length: normalizedTotalCount }, (_, index) => index);
+  }
+
+  if (normalizedTargetCount === 1) {
+    return [0];
+  }
+
+  const selectedIndexes = new Set<number>();
+  for (let index = 0; index < normalizedTargetCount; index += 1) {
+    selectedIndexes.add(Math.round((index * (normalizedTotalCount - 1)) / (normalizedTargetCount - 1)));
+  }
+
+  if (selectedIndexes.size < normalizedTargetCount) {
+    for (let index = 0; index < normalizedTotalCount && selectedIndexes.size < normalizedTargetCount; index += 1) {
+      selectedIndexes.add(index);
+    }
+  }
+
+  return [...selectedIndexes].sort((left, right) => left - right);
+}
+
 function compactPromptText(text: string | undefined, maxLength: number): string {
   const normalized = String(text || '')
     .trim()
@@ -1506,26 +1536,45 @@ export function buildFinalPolishUserPrompt(
 export function buildFinalPolishVoiceGuideUserPrompt(
   storySynthesis: StorySynthesis,
   sections: NovelSection[],
-  writingMode: WritingMode
+  writingMode: WritingMode,
+  compactMode = false
 ): string {
+  const storyOverviewMaxLength = compactMode ? 420 : 700;
+  const worldGuideMaxLength = compactMode ? 200 : 320;
+  const characterGuideMaxLength = compactMode ? 420 : 700;
+  const sceneSummaryMaxLength = compactMode ? 80 : 120;
+  const constraintLimit = compactMode ? 6 : 8;
+  const constraintMaxLength = compactMode ? 100 : 120;
+  const sectionSampleLimit = compactMode ? 4 : 6;
+  const excerptHeadLength = compactMode ? 220 : 360;
+  const excerptTailLength = compactMode ? 80 : 120;
   const storyContext = {
-    storyOverview: storySynthesis.storyOverview,
-    worldGuide: storySynthesis.worldGuide,
-    characterGuide: storySynthesis.characterGuide,
-    writingConstraints: storySynthesis.writingConstraints,
+    storyOverview: compactPromptText(storySynthesis.storyOverview, storyOverviewMaxLength),
+    worldGuide: compactPromptText(storySynthesis.worldGuide, worldGuideMaxLength),
+    characterGuide: compactPromptText(storySynthesis.characterGuide, characterGuideMaxLength),
+    writingConstraints: compactPromptList(
+      storySynthesis.writingConstraints,
+      constraintLimit,
+      constraintMaxLength
+    ),
     sceneOutline: storySynthesis.sceneOutline.map((scene) => ({
       sceneId: scene.sceneId,
-      title: scene.title,
-      summary: scene.summary,
+      title: compactPromptText(scene.title, 36),
+      summary: compactPromptText(scene.summary, sceneSummaryMaxLength),
       chunkIndexes: scene.chunkIndexes,
     })),
   };
-  const sectionSamples = sections.map((section) => ({
-    index: section.index,
-    title: section.title,
-    continuitySummary: section.continuitySummary,
-    excerpt: buildExcerpt(section.markdownBody, 700, 220),
-  }));
+  const sampleIndexes = selectEvenlyDistributedPromptIndexes(sections.length, sectionSampleLimit);
+  const sectionSamples = sampleIndexes.map((index) => {
+    const section = sections[index];
+
+    return {
+      index: section.index,
+      title: compactPromptText(section.title, 36),
+      continuitySummary: compactPromptText(section.continuitySummary, 120),
+      excerpt: buildExcerpt(section.markdownBody, excerptHeadLength, excerptTailLength),
+    };
+  });
 
   return [
     'Build a compact novel-level voice guide for final polish.',
