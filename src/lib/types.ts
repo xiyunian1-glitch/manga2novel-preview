@@ -284,7 +284,7 @@ export interface TaskState {
 }
 
 export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
-  workflowMode: 'page-analysis',
+  workflowMode: 'split-draft',
   chunkSize: 1,
   synthesisChunkCount: 8,
   splitPartCount: 4,
