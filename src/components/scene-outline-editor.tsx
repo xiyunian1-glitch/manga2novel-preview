@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import type { ChunkSynthesis, ScenePlan } from '@/lib/types';
+import type { ChunkSynthesis, ScenePlan, WorkflowMode } from '@/lib/types';
 
 interface DraftScene extends ScenePlan {
   chunkIndexesText: string;
@@ -25,6 +25,7 @@ type SceneInsight = {
 interface SceneOutlineEditorProps {
   sceneOutline: ScenePlan[];
   chunkSyntheses: ChunkSynthesis[];
+  workflowMode: WorkflowMode;
   disabled?: boolean;
   onSave: (sceneOutline: ScenePlan[]) => void;
   onConfirmAndContinue: () => Promise<void>;
@@ -100,7 +101,12 @@ function mergeDraftScenes(previous: DraftScene, current: DraftScene, nextIndex: 
   };
 }
 
-function buildSceneInsight(scene: DraftScene, index: number, totalScenes: number): SceneInsight {
+function buildSceneInsight(
+  scene: DraftScene,
+  index: number,
+  totalScenes: number,
+  unitLabel: string
+): SceneInsight {
   const chunkCount = parseChunkIndexes(scene.chunkIndexesText).length;
   const summaryLength = scene.summary.trim().length;
   const title = scene.title.trim();
@@ -132,19 +138,19 @@ function buildSceneInsight(scene: DraftScene, index: number, totalScenes: number
     hint: isLeadingScene && isIntroLike
       ? '这个场景更像封面、标题页或引子，单独成节通常会显得太碎。可以考虑并入下一场。'
       : isTailScene
-      ? '这个场景只有 1 个分块，且位于末尾，最后成文可能偏短。可以考虑并入上一场，减少“尾巴感”。'
-      : '这个场景只有 1 个分块，成文可能偏短。若它和上一场承接很紧，可以考虑合并。',
+      ? `这个场景只有 1 个${unitLabel}，且位于末尾，最后成文可能偏短。可以考虑并入上一场，减少“尾巴感”。`
+      : `这个场景只有 1 个${unitLabel}，成文可能偏短。若它和上一场承接很紧，可以考虑合并。`,
   };
 }
 
-function optimizeDraftScenes(scenes: DraftScene[]): DraftScene[] {
+function optimizeDraftScenes(scenes: DraftScene[], unitLabel: string): DraftScene[] {
   const workingScenes = scenes.map((scene) => ({
     ...scene,
     chunkIndexesText: buildChunkIndexesText(parseChunkIndexes(scene.chunkIndexesText)),
   }));
 
   if (workingScenes.length > 1) {
-    const leadingInsight = buildSceneInsight(workingScenes[0], 0, workingScenes.length);
+    const leadingInsight = buildSceneInsight(workingScenes[0], 0, workingScenes.length, unitLabel);
     if (leadingInsight.shouldSuggestMerge && /封面|标题页|引子/u.test(leadingInsight.hint || '')) {
       const leadingScene = workingScenes.shift();
       const nextScene = workingScenes.shift();
@@ -164,7 +170,7 @@ function optimizeDraftScenes(scenes: DraftScene[]): DraftScene[] {
       return result;
     }
 
-    const insight = buildSceneInsight(scene, index, workingScenes.length);
+    const insight = buildSceneInsight(scene, index, workingScenes.length, unitLabel);
     if (!insight.shouldSuggestMerge) {
       result.push(scene);
       return result;
@@ -182,6 +188,7 @@ function optimizeDraftScenes(scenes: DraftScene[]): DraftScene[] {
 export function SceneOutlineEditor({
   sceneOutline,
   chunkSyntheses,
+  workflowMode,
   disabled,
   onSave,
   onConfirmAndContinue,
@@ -203,9 +210,13 @@ export function SceneOutlineEditor({
     }
   }, [draftScenes.length, expandedSceneIndex]);
 
+  const splitDraftMode = workflowMode === 'split-draft';
+  const chunkUnitLabel = splitDraftMode ? '部分' : '分块';
+  const sectionSplitLabel = splitDraftMode ? '分段' : '分块';
+
   const chunkTitles = useMemo(() => (
-    new Map(chunkSyntheses.map((chunk) => [chunk.index, chunk.title || `分块 ${chunk.index + 1}`]))
-  ), [chunkSyntheses]);
+    new Map(chunkSyntheses.map((chunk) => [chunk.index, chunk.title || `${chunkUnitLabel} ${chunk.index + 1}`]))
+  ), [chunkSyntheses, chunkUnitLabel]);
 
   const coveredChunkCount = useMemo(() => {
     const usedChunks = new Set(draftScenes.flatMap((scene) => parseChunkIndexes(scene.chunkIndexesText)));
@@ -213,8 +224,8 @@ export function SceneOutlineEditor({
   }, [draftScenes]);
 
   const sceneInsights = useMemo(() => (
-    draftScenes.map((scene, index) => buildSceneInsight(scene, index, draftScenes.length))
-  ), [draftScenes]);
+    draftScenes.map((scene, index) => buildSceneInsight(scene, index, draftScenes.length, chunkUnitLabel))
+  ), [chunkUnitLabel, draftScenes]);
 
   const buildNextScene = (): DraftScene => {
     const usedChunks = new Set(draftScenes.flatMap((scene) => parseChunkIndexes(scene.chunkIndexesText)));
@@ -312,7 +323,7 @@ export function SceneOutlineEditor({
 
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">场景 {draftScenes.length}</Badge>
-            <Badge variant="outline">覆盖分块 {coveredChunkCount} / {chunkSyntheses.length}</Badge>
+            <Badge variant="outline">覆盖{chunkUnitLabel} {coveredChunkCount} / {chunkSyntheses.length}</Badge>
           </div>
         </div>
       </CardHeader>
@@ -394,7 +405,7 @@ export function SceneOutlineEditor({
                   </div>
 
                   <div className="space-y-2">
-                    <Label>关联分块</Label>
+                    <Label>关联{chunkUnitLabel}</Label>
                     <Input
                       value={scene.chunkIndexesText}
                       onChange={(event) => updateScene(index, { chunkIndexesText: event.target.value })}
@@ -402,7 +413,7 @@ export function SceneOutlineEditor({
                       disabled={disabled}
                     />
                     <p className="text-xs text-muted-foreground">
-                      用分块编号填写，按 1 开始。例如 `1,2,3` 表示引用第 1 到第 3 个分块。
+                      用{chunkUnitLabel}编号填写，按 1 开始。例如 `1,2,3` 表示引用第 1 到第 3 个{chunkUnitLabel}。
                     </p>
                   </div>
                 </div>
@@ -448,11 +459,11 @@ export function SceneOutlineEditor({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">分块 {sceneInsight.chunkCount}</Badge>
+                <Badge variant="outline">{sectionSplitLabel} {sceneInsight.chunkCount}</Badge>
                 <Badge variant="outline">摘要 {sceneInsight.summaryLength} 字</Badge>
                 {chunkIndexes.map((chunkIndex) => (
                   <Badge key={`${scene.sceneId}-${chunkIndex}`} variant="secondary">
-                    #{chunkIndex + 1} {chunkTitles.get(chunkIndex) || `分块 ${chunkIndex + 1}`}
+                    #{chunkIndex + 1} {chunkTitles.get(chunkIndex) || `${chunkUnitLabel} ${chunkIndex + 1}`}
                   </Badge>
                 ))}
               </div>
@@ -486,7 +497,7 @@ export function SceneOutlineEditor({
             type="button"
             variant="outline"
             onClick={() => {
-              const nextScenes = optimizeDraftScenes(draftScenes);
+              const nextScenes = optimizeDraftScenes(draftScenes, chunkUnitLabel);
               const changed = JSON.stringify(nextScenes) !== JSON.stringify(draftScenes);
               setDraftScenes(nextScenes);
               setExpandedSceneIndex(null);

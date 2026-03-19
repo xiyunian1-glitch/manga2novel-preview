@@ -224,7 +224,7 @@ export default function Manga2NovelApp() {
       ? `逐页分组：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`
       : `逐页分组：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`;
     const synthesisSummary = taskState.config.workflowMode === 'split-draft'
-      ? '生成顺序：逐页分析 → 整书综合 → 场景确认/统稿 → 章节写作'
+      ? `章节分段：${taskState.config.splitPartCount === 0 ? '自动' : `${taskState.config.splitPartCount} 段`}`
       : `分块综合：${taskState.config.synthesisChunkCount} 段`;
 
     return [
@@ -241,6 +241,7 @@ export default function Manga2NovelApp() {
     taskState.config.autoSkipOnError,
     taskState.config.chunkSize,
     taskState.config.enableFinalPolish,
+    taskState.config.splitPartCount,
     taskState.config.synthesisChunkCount,
     taskState.config.workflowMode,
     taskState.creativeSettings.writingMode,
@@ -780,6 +781,7 @@ export default function Manga2NovelApp() {
                   <SceneOutlineEditor
                     sceneOutline={taskState.globalSynthesis.sceneOutline}
                     chunkSyntheses={taskState.chunkSyntheses}
+                    workflowMode={taskState.config.workflowMode}
                     disabled={isRunning}
                     onSave={updateSceneOutline}
                     onConfirmAndContinue={confirmSceneOutlineAndResume}

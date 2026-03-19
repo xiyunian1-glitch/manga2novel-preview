@@ -2,6 +2,7 @@
 
 import { Settings } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
@@ -17,6 +18,10 @@ interface OrchestratorConfigPanelProps {
 
 export function OrchestratorConfigPanel({ config, onUpdate, disabled }: OrchestratorConfigPanelProps) {
   const isSplitDraftMode = config.workflowMode === 'split-draft';
+  const handleSplitPartCountChange = (value: number) => {
+    const nextValue = Math.max(0, Math.min(20, Math.trunc(value) || 0));
+    onUpdate({ splitPartCount: nextValue });
+  };
 
   return (
     <Card>
@@ -67,25 +72,64 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
         </div>
 
         {isSplitDraftMode ? (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-sm">每组图片数（逐页分析）</Label>
-              <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
-                {config.chunkSize === 0 ? '自动（自适应）' : config.chunkSize}
-              </span>
+          <>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <Label className="text-sm">章节默认分段数（直综合写作）</Label>
+                  <p className="text-xs text-muted-foreground">
+                    决定整书综合后默认拆成几部分进入章节写作。`0` 表示自动按页数估算，默认值为 `4`。
+                  </p>
+                </div>
+                <div className="w-24">
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={20}
+                    step={1}
+                    value={config.splitPartCount}
+                    onChange={(event) => handleSplitPartCountChange(Number(event.target.value))}
+                    disabled={disabled}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">0 = 自动</span>
+                <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
+                  {config.splitPartCount === 0 ? '自动' : `${config.splitPartCount} 段`}
+                </span>
+              </div>
+              <Slider
+                value={[config.splitPartCount]}
+                onValueChange={(value) => handleSplitPartCountChange(Array.isArray(value) ? value[0] : value)}
+                min={0}
+                max={20}
+                step={1}
+                disabled={disabled}
+              />
             </div>
-            <Slider
-              value={[config.chunkSize]}
-              onValueChange={(value) => onUpdate({ chunkSize: Array.isArray(value) ? value[0] : value })}
-              min={0}
-              max={50}
-              step={1}
-              disabled={disabled}
-            />
-            <p className="text-xs text-muted-foreground">
-              这个模式同样先做逐页分析，`0` 表示按当前视觉模型自动选择更稳的分组大小。多图识别通常建议保持在 `2-4` 张，然后直接进入整书综合，不再经过分块综合。
-            </p>
-          </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">每组图片数（逐页分析）</Label>
+                <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
+                  {config.chunkSize === 0 ? '自动（自适应）' : config.chunkSize}
+                </span>
+              </div>
+              <Slider
+                value={[config.chunkSize]}
+                onValueChange={(value) => onUpdate({ chunkSize: Array.isArray(value) ? value[0] : value })}
+                min={0}
+                max={50}
+                step={1}
+                disabled={disabled}
+              />
+              <p className="text-xs text-muted-foreground">
+                这个模式同样先做逐页分析，`0` 表示按当前视觉模型自动选择更稳的分组大小。多图识别通常建议保持在 `2-4` 张，然后直接进入整书综合，不再经过分块综合。
+              </p>
+            </div>
+          </>
         ) : (
           <>
             <div className="space-y-2">

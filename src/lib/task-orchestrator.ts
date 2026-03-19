@@ -199,7 +199,7 @@ const SPLIT_DRAFT_CHUNK_MAX_TOKENS = 8192;
 const WRITING_PREPARATION_MAX_TOKENS = 2048;
 const WRITING_MAX_TOKENS = 4096;
 const PAGE_ANALYSIS_BATCH_TIMEOUT_MS = 90_000;
-const PAGE_ANALYSIS_BATCH_TIMEOUT_MAX_MS = 180_000;
+const PAGE_ANALYSIS_BATCH_TIMEOUT_MAX_MS = 300_000;
 const CHUNK_SYNTHESIS_TIMEOUT_MS = 180_000;
 const SPLIT_DRAFT_CHUNK_TIMEOUT_MS = 240_000;
 const STORY_SYNTHESIS_TIMEOUT_MS = 240_000;
@@ -1370,6 +1370,13 @@ interface RetryTarget {
   error?: string;
 }
 
+interface SectionSceneImageEntry {
+  imageName: string;
+  label: string;
+  base64: string;
+  mime: string;
+}
+
 function parseMaxTokenLimitError(message: string): { requestedTotal: number; maxSeqLen: number } | null {
   const match = message.match(/max_total_tokens\s*\((\d+)\)\s*must be less than or equal to max_seq_len\s*\((\d+)\)/i);
   if (!match) {
@@ -1749,6 +1756,95 @@ function getAutoPageAnalysisBatchSize(
   return Math.min(2, imageCount);
 }
 
+function getAutoSplitDraftPartCount(imageCount: number): number {
+  if (imageCount <= 0) {
+    return 1;
+  }
+
+  return Math.min(20, Math.max(1, Math.ceil(imageCount / 32)));
+}
+
+function getAutoSectionWritingImageLimit(
+  provider: APIProvider = 'compatible',
+  model = '',
+  imageCount = 1
+): number {
+  if (imageCount <= 1) {
+    return imageCount;
+  }
+
+  if (isGeminiFamilyModel(provider, model)) {
+    return Math.min(8, imageCount);
+  }
+
+  if (/claude|sonnet/i.test(model)) {
+    return Math.min(6, imageCount);
+  }
+
+  if (/gpt-4\.1|gpt-4o|gpt-5|vision|vl|pixtral|qwen|glm|internvl/i.test(model)) {
+    return Math.min(6, imageCount);
+  }
+
+  return Math.min(4, imageCount);
+}
+
+function selectEvenlyDistributedIndexes(totalCount: number, targetCount: number): number[] {
+  const normalizedTotalCount = Math.max(0, Math.trunc(totalCount) || 0);
+  const normalizedTargetCount = Math.max(1, Math.min(normalizedTotalCount, Math.trunc(targetCount) || 1));
+
+  if (normalizedTotalCount <= 0) {
+    return [];
+  }
+
+  if (normalizedTargetCount >= normalizedTotalCount) {
+    return Array.from({ length: normalizedTotalCount }, (_, index) => index);
+  }
+
+  if (normalizedTargetCount === 1) {
+    return [0];
+  }
+
+  const selectedIndexes = new Set<number>();
+  for (let index = 0; index < normalizedTargetCount; index += 1) {
+    selectedIndexes.add(Math.round((index * (normalizedTotalCount - 1)) / (normalizedTargetCount - 1)));
+  }
+
+  if (selectedIndexes.size < normalizedTargetCount) {
+    for (let index = 0; index < normalizedTotalCount && selectedIndexes.size < normalizedTargetCount; index += 1) {
+      selectedIndexes.add(index);
+    }
+  }
+
+  return [...selectedIndexes].sort((left, right) => left - right);
+}
+
+function buildSectionWritingImageAttemptCounts(
+  imageCount: number,
+  preferredMaxImageCount: number
+): number[] {
+  const normalizedImageCount = Math.max(0, Math.trunc(imageCount) || 0);
+  if (normalizedImageCount <= 0) {
+    return [];
+  }
+
+  const counts: number[] = [];
+  const pushCount = (value: number) => {
+    const normalizedValue = Math.max(1, Math.min(normalizedImageCount, Math.trunc(value) || 1));
+    if (!counts.includes(normalizedValue)) {
+      counts.push(normalizedValue);
+    }
+  };
+
+  pushCount(normalizedImageCount);
+  pushCount(preferredMaxImageCount);
+
+  if (normalizedImageCount > 2) {
+    pushCount(Math.max(2, Math.ceil(Math.min(preferredMaxImageCount, normalizedImageCount) / 2)));
+  }
+
+  return counts;
+}
+
 function createBalancedImageChunks(images: ImageItem[], targetChunkCount: number): ImageChunk[] {
   if (images.length === 0) {
     return [];
@@ -1771,26 +1867,6 @@ function createBalancedImageChunks(images: ImageItem[], targetChunkCount: number
     });
 
     startIndex += currentChunkSize;
-  }
-
-  return chunks;
-}
-
-function createSequentialImageChunksBySize(images: ImageItem[], chunkSize: number): ImageChunk[] {
-  if (images.length === 0) {
-    return [];
-  }
-
-  const normalizedChunkSize = Math.max(1, Math.trunc(chunkSize) || 1);
-  const chunks: ImageChunk[] = [];
-
-  for (let index = 0, chunkIndex = 0; index < images.length; index += normalizedChunkSize, chunkIndex += 1) {
-    chunks.push({
-      index: chunkIndex,
-      images: images.slice(index, index + normalizedChunkSize),
-      status: 'pending',
-      retryCount: 0,
-    });
   }
 
   return chunks;
@@ -2503,35 +2579,87 @@ export class TaskOrchestrator {
       .map((page) => page.imageName);
   }
 
-  private getSectionRequestImages(
-    section: NovelSection,
-    labels?: string[]
-  ): Array<{ base64: string; mime: string; label?: string }> {
-    const sectionChunks = this.state.chunks
-      .filter((chunk) => section.chunkIndexes.includes(chunk.index));
-    const sectionImages = sectionChunks.flatMap((chunk) => chunk.images);
+  private getSectionSceneImageEntries(section: NovelSection): SectionSceneImageEntry[] {
+    const allImages = this.getReadyImagesInOrder();
 
-    return sectionImages.map((image, imageIndex) => {
-      if (!image.processedBase64 || !image.processedMime) {
-        throw new Error(`Missing processed image data for section ${section.index + 1}, image ${imageIndex + 1}.`);
-      }
+    return this.state.pageAnalyses
+      .filter((page) => section.chunkIndexes.includes(page.chunkIndex))
+      .map((page) => {
+        const image = allImages[page.index];
+        if (!image?.processedBase64 || !image.processedMime) {
+          throw new Error(`Missing processed image data for section ${section.index + 1}, page ${page.pageNumber}.`);
+        }
 
-      return {
-        base64: image.processedBase64,
-        mime: image.processedMime,
-        label: labels?.[imageIndex],
-      };
-    });
+        return {
+          imageName: page.imageName,
+          label: `[Page ${page.pageNumber}] file=${page.imageName}`,
+          base64: image.processedBase64,
+          mime: image.processedMime,
+        };
+      });
   }
 
   private shouldIncludeSceneImagesForSectionWriting(section: NovelSection): boolean {
     return this.getSectionImageNames(section).length > 0;
   }
 
+  private shouldRetrySectionWritingWithReducedImages(message: string): boolean {
+    return /too many images?|context length|input (?:is )?too (?:long|large)|prompt_tokens|max_seq_len|prompt is too long/i.test(message);
+  }
+
   private shouldFallbackSectionWritingToTextOnly(message: string): boolean {
+    return isImageInputUnsupportedError(message);
+  }
+
+  private selectSectionSceneImageEntries(
+    entries: SectionSceneImageEntry[],
+    targetImageCount: number
+  ): SectionSceneImageEntry[] {
+    const indexes = selectEvenlyDistributedIndexes(entries.length, targetImageCount);
+    return indexes
+      .map((index) => entries[index])
+      .filter((entry): entry is SectionSceneImageEntry => Boolean(entry));
+  }
+
+  private buildSectionWritingImageAttempts(section: NovelSection): SectionSceneImageEntry[][] {
+    const sectionImageEntries = this.getSectionSceneImageEntries(section);
+    if (sectionImageEntries.length === 0) {
+      return [];
+    }
+
+    const stageAPIConfig = this.resolveAPIConfigForStage('write-sections');
+    const stageModel = this.resolveModelForStage('write-sections');
+    const preferredMaxImageCount = getAutoSectionWritingImageLimit(
+      stageAPIConfig.provider,
+      stageModel,
+      sectionImageEntries.length
+    );
+    const attemptCounts = buildSectionWritingImageAttemptCounts(
+      sectionImageEntries.length,
+      preferredMaxImageCount
+    );
+
+    return attemptCounts.map((count) => this.selectSectionSceneImageEntries(sectionImageEntries, count));
+  }
+
+  private createSectionWritingImagePayload(entries: SectionSceneImageEntry[]): {
+    imageNames: string[];
+    images: Array<{ base64: string; mime: string; label?: string }>;
+  } {
+    return {
+      imageNames: entries.map((entry) => entry.imageName),
+      images: entries.map((entry) => ({
+        base64: entry.base64,
+        mime: entry.mime,
+        label: entry.label,
+      })),
+    };
+  }
+
+  private shouldFallbackSectionWritingToTextOnlyAfterImageRetries(message: string): boolean {
     return (
-      isImageInputUnsupportedError(message)
-      || /too many images?|context length|input (?:is )?too (?:long|large)|prompt_tokens|max_seq_len/i.test(message)
+      this.shouldFallbackSectionWritingToTextOnly(message)
+      || this.shouldRetrySectionWritingWithReducedImages(message)
     );
   }
 
@@ -2541,12 +2669,6 @@ export class TaskOrchestrator {
     scenePlan: ScenePlan
   ): Promise<{ novelText: string; continuitySummary: string }> {
     const includeSceneImages = this.shouldIncludeSceneImagesForSectionWriting(section);
-    const sectionImageNames = this.getSectionImageNames(section);
-    const sectionImageLabels = includeSceneImages
-      ? this.state.pageAnalyses
-          .filter((page) => section.chunkIndexes.includes(page.chunkIndex))
-          .map((page) => `[Page ${page.pageNumber}] file=${page.imageName}`)
-      : [];
     const sectionUserPrompt = buildSectionUserPrompt(
       sectionIndex,
       this.state.globalSynthesis,
@@ -2559,15 +2681,21 @@ export class TaskOrchestrator {
       this.state.creativeSettings.userPromptTemplate,
       includeSceneImages
     );
-    const requestSectionDraft = (images: Array<{ base64: string; mime: string; label?: string }>, userPromptPlacement?: 'before-media' | 'after-media') => (
+    const requestSectionDraft = (
+      sectionImageEntries: SectionSceneImageEntry[],
+      userPromptPlacement?: 'before-media' | 'after-media'
+    ) => {
+      const mediaPayload = this.createSectionWritingImagePayload(sectionImageEntries);
+
+      return (
       this.requestStructuredData(
         section,
         {
           stage: 'write-sections',
           itemLabel: section.title,
           chunkIndex: sectionIndex,
-          imageNames: sectionImageNames,
-          images,
+          imageNames: mediaPayload.imageNames,
+          images: mediaPayload.images,
           systemPrompt: buildSectionSystemPrompt(this.state.creativeSettings.systemPrompt),
           userPrompt: sectionUserPrompt,
           temperature: this.state.creativeSettings.temperature,
@@ -2577,24 +2705,53 @@ export class TaskOrchestrator {
         },
         parseSectionResult
       )
-    );
+      );
+    };
 
     if (!includeSceneImages) {
       return requestSectionDraft([]);
     }
 
+    const imageAttempts = this.buildSectionWritingImageAttempts(section);
+    let lastImageError: unknown = null;
+
+    for (let attemptIndex = 0; attemptIndex < imageAttempts.length; attemptIndex += 1) {
+      try {
+        return await requestSectionDraft(
+          imageAttempts[attemptIndex] || [],
+          'after-media'
+        );
+      } catch (error) {
+        lastImageError = error;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (this.shouldFallbackSectionWritingToTextOnly(errorMessage)) {
+          return requestSectionDraft([]);
+        }
+
+        if (
+          this.shouldRetrySectionWritingWithReducedImages(errorMessage)
+          && attemptIndex < imageAttempts.length - 1
+        ) {
+          continue;
+        }
+
+        if (!this.shouldFallbackSectionWritingToTextOnlyAfterImageRetries(errorMessage)) {
+          throw error;
+        }
+
+        break;
+      }
+    }
+
     try {
-      return await requestSectionDraft(
-        this.getSectionRequestImages(section, sectionImageLabels),
-        'after-media'
-      );
+      return await requestSectionDraft([]);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (!this.shouldFallbackSectionWritingToTextOnly(errorMessage)) {
-        throw error;
+      if (lastImageError && this.shouldFallbackSectionWritingToTextOnlyAfterImageRetries(errorMessage)) {
+        throw lastImageError;
       }
 
-      return requestSectionDraft([]);
+      throw error;
     }
   }
 
@@ -3030,6 +3187,19 @@ export class TaskOrchestrator {
     const stageAPIConfig = resolveStageAPIConfig(this.apiConfig, 'analyze-pages');
     const model = resolveStageModel(this.apiConfig, 'analyze-pages');
     return getAutoPageAnalysisBatchSize(stageAPIConfig.provider, model, imageCount);
+  }
+
+  private getEffectiveSplitDraftPartCount(imageCount: number): number {
+    if (imageCount <= 0) {
+      return 1;
+    }
+
+    const configured = Math.trunc(this.state.config.splitPartCount);
+    if (Number.isFinite(configured) && configured > 0) {
+      return Math.max(1, Math.min(imageCount, Math.min(20, configured)));
+    }
+
+    return Math.min(imageCount, getAutoSplitDraftPartCount(imageCount));
   }
 
   private getPageAnalysisMaxTokens(
@@ -3865,8 +4035,9 @@ export class TaskOrchestrator {
     const readyImages = images.filter((image) => image.status === 'ready');
     const normalizedChunkSize = this.getEffectivePageAnalysisBatchSize(readyImages.length);
     const targetChunkCount = Math.max(1, Math.trunc(this.state.config.synthesisChunkCount) || 1);
+    const targetSplitDraftPartCount = this.getEffectiveSplitDraftPartCount(readyImages.length);
     const chunks = this.isSplitDraftMode()
-      ? createSequentialImageChunksBySize(readyImages, normalizedChunkSize)
+      ? createBalancedImageChunks(readyImages, targetSplitDraftPartCount)
       : createBalancedImageChunks(readyImages, targetChunkCount);
     const pageNumberByImageId = new Map<string, number>();
     readyImages.forEach((image, index) => {

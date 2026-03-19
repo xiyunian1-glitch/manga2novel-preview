@@ -900,6 +900,7 @@ export function buildDirectPageAnalysisGlobalSynthesisPrompt(
   pageAnalyses: PageAnalysis[],
   chunkSyntheses: ChunkSynthesis[]
 ): string {
+  const targetSceneCount = chunkSyntheses.length;
   const virtualChunkContext = chunkSyntheses.map((chunk) => ({
     index: chunk.index,
     pageNumbers: chunk.pageNumbers,
@@ -928,10 +929,11 @@ Requirements:
 1. Treat the page-level analyses as the primary source of truth for storyOverview, characterGuide, worldGuide, sceneOutline, and writingConstraints.
 2. Use the virtual page groups only as indexing aids for sceneOutline.chunkIndexes and for high-level continuity navigation. Do not let them override clear page-level evidence.
 3. sceneOutline.chunkIndexes must reference existing virtual group indexes only.
-4. A scene may contain one or more chunkIndexes when it spans multiple adjacent virtual page groups.
-5. characterGuide should merge recurring roles, relationship hints, and cross-page changes for the same characters.
-6. writingConstraints should keep only constraints that materially affect later writing consistency.
-7. Return JSON only.
+4. Prefer producing ${targetSceneCount} sceneOutline items overall so later chapter writing is split into about ${targetSceneCount} parts by default.
+5. A scene may contain one or more chunkIndexes when it spans multiple adjacent virtual page groups, but avoid collapsing too many groups into one scene unless the story clearly requires it.
+6. characterGuide should merge recurring roles, relationship hints, and cross-page changes for the same characters.
+7. writingConstraints should keep only constraints that materially affect later writing consistency.
+8. Return JSON only.
 
 Strictly output JSON:
 ${GLOBAL_SYNTHESIS_OUTPUT_SCHEMA}`;
@@ -1075,13 +1077,16 @@ export function buildSectionUserPrompt(
   const enrichedSceneSourceBlock = [
     'Use the current section as the main source of truth. Use previous and next scene context only to smooth transitions, preserve character consistency, and maintain narrative continuity.',
     includeSceneImages
-      ? 'The ordered images for the current scene are attached as auxiliary evidence. Priority order is: manual edits and structured text first, continuity context second, attached images last.'
+      ? 'The current scene images are attached and must participate in writing. Use them together with the structured scene data to restore panel order, action beats, expressions, staging, speaker positioning, and visual continuity. For OCR/dialogue facts, trust confirmed structured text first; for movement, blocking, atmosphere, and omitted visual beats, trust the attached images first.'
       : 'The current scene is provided as structured text only. Treat the structured text and continuity context as the full source of truth.',
     includeSceneImages
-      ? 'Use attached images only to补充动作、表情、站位、镜头衔接和氛围细节, or to verify ambiguities that remain in the structured text. Do not let the images override confirmed structured dialogue, scene summaries, or manually edited content.'
+      ? 'If model limits prevent attaching every scene image, the attached images may be an ordered representative subset. Even in that case, you must use them to keep visual progression and scene blocking faithful to the source instead of flattening the section into summary prose.'
       : 'Do not invent visual details that are absent from the structured text.',
     includeSceneImages
-      ? 'Do not redo OCR from the images or replace the structured dialogue/text extraction with a new interpretation. Keep dialogue, narration text, and scene facts grounded in the provided structured material.'
+      ? 'Do not redo OCR from the images or replace confirmed extracted dialogue with a new interpretation. Keep dialogue, narration text, and scene facts grounded in the provided structured material, while using the images to recover missing visual details and correct action emphasis.'
+      : '',
+    includeSceneImages
+      ? 'When structured analysis is concise but the images show clear intermediate actions, reactions, or transitions, expand those beats in the prose so the written scene stays close to the source reading experience.'
       : '',
     'If the source contains explicit dialogue lines, quote them directly in the prose by default, using the corrected speaker attribution whenever direct speech is still present in the scene.',
     'You may make small wording edits only when needed for tense, sentence flow, emotional continuity, or scene blocking, but the original wording, intent, and speaker ownership must remain clearly recognizable.',
