@@ -7,7 +7,11 @@ import type {
   StorySynthesis,
   WritingMode,
 } from './types';
-import { applyDialogueResolutionMap, createDialogueResolutionMap } from './dialogue-resolution';
+import {
+  applyDialogueResolutionMap,
+  buildDialogueResolutionKey,
+  createDialogueResolutionMap,
+} from './dialogue-resolution';
 import { WRITING_MODE_LABELS } from './types';
 
 export const CUSTOM_PRESET_ID = 'custom';
@@ -617,27 +621,54 @@ function buildChunkDialogueResolutionAudit(pageAnalyses: PageAnalysis[]) {
   })));
 }
 
+type SectionDialoguePromptLine = {
+  speaker: string;
+  text: string;
+  speakerEvidence?: string;
+  speakerConfidence?: string;
+  originalSpeaker?: string;
+  originalSpeakerEvidence?: string;
+  originalSpeakerConfidence?: string;
+  speakerSource?: 'page-analysis' | 'chunk-corrected';
+};
+
 function buildSectionDialogueLedger(
   pages: Array<{
     pageNumber: number;
-    dialogue: Array<{
-      speaker: string;
-      text: string;
-      speakerEvidence?: string;
-      speakerConfidence?: string;
-    }>;
+    dialogue: SectionDialoguePromptLine[];
   }>
 ) {
   return pages.flatMap((page) => page.dialogue
     .filter((line) => Boolean(line.text.trim()))
-    .map((line, index) => ({
-      pageNumber: page.pageNumber,
-      lineIndex: index + 1,
-      speaker: line.speaker,
-      text: line.text,
-      speakerEvidence: line.speakerEvidence || '',
-      speakerConfidence: line.speakerConfidence || '',
-    })));
+    .map((line, index) => {
+      const currentSpeaker = line.speaker.trim() || '未确认';
+      const originalSpeaker = (line.originalSpeaker || line.speaker).trim() || '未确认';
+      const currentSpeakerEvidence = line.speakerEvidence?.trim() || '';
+      const currentSpeakerConfidence = line.speakerConfidence?.trim() || '';
+      const originalSpeakerEvidence = line.originalSpeakerEvidence?.trim() || '';
+      const originalSpeakerConfidence = line.originalSpeakerConfidence?.trim() || '';
+      const speakerChanged = currentSpeaker !== originalSpeaker;
+      const needsVisualVerification = (
+        currentSpeaker === '未确认'
+        || !currentSpeakerEvidence
+        || currentSpeakerConfidence !== 'high'
+        || speakerChanged
+      );
+
+      return {
+        pageNumber: page.pageNumber,
+        lineIndex: index + 1,
+        text: line.text,
+        currentSpeaker,
+        currentSpeakerEvidence,
+        currentSpeakerConfidence,
+        originalSpeaker,
+        originalSpeakerEvidence,
+        originalSpeakerConfidence,
+        speakerSource: line.speakerSource || 'page-analysis',
+        needsVisualVerification,
+      };
+    }));
 }
 
 function buildChunkContinuityChain(chunkSyntheses: ChunkSynthesis[]) {
@@ -971,22 +1002,46 @@ export function buildSectionUserPrompt(
     }));
   const dialogueResolutionMap = createDialogueResolutionMap(relatedChunkSyntheses);
   const relatedPages = relatedPageAnalyses
-    .map((page) => ({
-      pageNumber: page.pageNumber,
-      summary: page.summary,
-      location: page.location,
-      timeHint: page.timeHint,
-      keyEvents: page.keyEvents,
-      dialogue: applyDialogueResolutionMap(page.pageNumber, page.dialogue, dialogueResolutionMap),
-      narrationText: page.narrationText,
-      visualText: page.visualText,
-      characters: page.characters.map((character) => ({
-        name: character.name,
-        role: character.role,
-        traits: character.traits,
-        relationshipHints: character.relationshipHints,
-      })),
-    }));
+    .map((page) => {
+      const resolvedDialogue = applyDialogueResolutionMap(
+        page.pageNumber,
+        page.dialogue,
+        dialogueResolutionMap
+      );
+
+      return {
+        pageNumber: page.pageNumber,
+        summary: page.summary,
+        location: page.location,
+        timeHint: page.timeHint,
+        keyEvents: page.keyEvents,
+        dialogue: resolvedDialogue.map((line, index) => {
+          const originalLine = page.dialogue[index];
+          const hasChunkResolution = dialogueResolutionMap.has(
+            buildDialogueResolutionKey(page.pageNumber, index + 1)
+          );
+
+          return {
+            speaker: line.speaker,
+            text: line.text,
+            speakerEvidence: line.speakerEvidence || '',
+            speakerConfidence: line.speakerConfidence || '',
+            originalSpeaker: originalLine?.speaker || line.speaker,
+            originalSpeakerEvidence: originalLine?.speakerEvidence || '',
+            originalSpeakerConfidence: originalLine?.speakerConfidence || '',
+            speakerSource: hasChunkResolution ? 'chunk-corrected' : 'page-analysis',
+          } satisfies SectionDialoguePromptLine;
+        }),
+        narrationText: page.narrationText,
+        visualText: page.visualText,
+        characters: page.characters.map((character) => ({
+          name: character.name,
+          role: character.role,
+          traits: character.traits,
+          relationshipHints: character.relationshipHints,
+        })),
+      };
+    });
   const sectionDialogueLedger = buildSectionDialogueLedger(relatedPages);
   const previousScene = storySynthesis.sceneOutline[sectionIndex - 1];
   const nextScene = storySynthesis.sceneOutline[sectionIndex + 1];
@@ -1088,6 +1143,13 @@ export function buildSectionUserPrompt(
     includeSceneImages
       ? 'When structured analysis is concise but the images show clear intermediate actions, reactions, or transitions, expand those beats in the prose so the written scene stays close to the source reading experience.'
       : '',
+    'Use the dialogue ledger as a verification checklist instead of blindly trusting every upstream speaker label.',
+    'The ledger includes the current speaker attribution, the original page-analysis attribution, speaker evidence, confidence, and a needsVisualVerification flag for each quoted line.',
+    includeSceneImages
+      ? 'If needsVisualVerification is true, or if currentSpeaker and originalSpeaker disagree, verify the line against the attached current-scene images before deciding who says it.'
+      : 'If a dialogue line has weak evidence, low confidence, or conflicting attributions, treat the speaker assignment as tentative rather than absolute.',
+    'If speaker ownership remains uncertain after checking the available evidence, keep the quote but avoid forcing it onto the wrong named character. A neutral or unattributed delivery is better than a confident misattribution.',
+    'Only override a high-confidence structured speaker assignment when the current scene provides clearly stronger contradictory evidence.',
     'If the source contains explicit dialogue lines, quote them directly in the prose by default, using the corrected speaker attribution whenever direct speech is still present in the scene.',
     'You may make small wording edits only when needed for tense, sentence flow, emotional continuity, or scene blocking, but the original wording, intent, and speaker ownership must remain clearly recognizable.',
     'Do not omit or collapse clear dialogue lines into summary narration unless a tiny adjustment is required to merge an obviously split utterance or remove exact repetition.',
@@ -1101,7 +1163,7 @@ export function buildSectionUserPrompt(
     '',
     sceneSourceBlock,
     sectionDialogueLedger.length > 0
-      ? `\n【应优先带入成文的原台词】\n这些对白默认应直接以引语进入正文；只允许做少量措辞调整来贴合剧情衔接、语气和动作节奏，不要大幅改写成转述或直接漏掉。\n${stringifyPromptData(sectionDialogueLedger)}`
+      ? `\n[Dialogue ledger to quote directly by default]\nEach entry shows the current speaker attribution, the original page-analysis attribution, supporting evidence, confidence, and whether the line still needs visual verification. By default, bring these quotes into the prose as direct speech with only small wording edits. If a line still remains uncertain after verification, keep the quote but avoid assigning it to the wrong named speaker.\n${stringifyPromptData(sectionDialogueLedger)}`
       : '',
     '',
     'Section continuity context',
