@@ -11,7 +11,6 @@ import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Check,
   ChevronDown,
@@ -194,13 +193,6 @@ function normalizeUrl(value?: string): string {
   return (value || '').trim().replace(/\/+$/, '');
 }
 
-function createShowStageKeysState(): Record<RequestStage, boolean> {
-  return REQUEST_STAGES.reduce((result, stage) => {
-    result[stage] = false;
-    return result;
-  }, {} as Record<RequestStage, boolean>);
-}
-
 function createShowQuickRouteKeysState(): Record<QuickRouteId, boolean> {
   return {
     analysis: false,
@@ -345,12 +337,9 @@ export function APIConfigPanel({
   const [models, setModels] = useState<ModelOption[]>(getDefaultModelsForProvider(config.provider));
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [showKey, setShowKey] = useState(false);
-  const [showStageKeys, setShowStageKeys] = useState<Record<RequestStage, boolean>>(createShowStageKeysState);
   const [showQuickRouteKeys, setShowQuickRouteKeys] = useState<Record<QuickRouteId, boolean>>(createShowQuickRouteKeysState);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [showRoutingOptions, setShowRoutingOptions] = useState(false);
-  const [showMoreOptions, setShowMoreOptions] = useState(false);
-  const [showFineGrainedOptions, setShowFineGrainedOptions] = useState(false);
   const [profileAction, setProfileAction] = useState<'save' | 'switch' | 'duplicate' | 'delete' | null>(null);
 
   const profileBusy = Boolean(profileAction);
@@ -379,11 +368,8 @@ export function APIConfigPanel({
     setModels(getDefaultModelsForProvider(config.provider));
     setModelPickerOpen(false);
     setShowKey(false);
-    setShowStageKeys(createShowStageKeysState());
     setShowQuickRouteKeys(createShowQuickRouteKeysState());
     setShowRoutingOptions(false);
-    setShowMoreOptions(false);
-    setShowFineGrainedOptions(false);
   }, [activeProfile?.name, config]);
 
   useEffect(() => {
@@ -441,14 +427,6 @@ export function APIConfigPanel({
     return models.find((item) => item.id === normalizedModel);
   }, [groupedModels, model, models]);
 
-  const stageModelOverrideCount = useMemo(
-    () => REQUEST_STAGES.filter((stage) => Boolean(stageModels[stage]?.trim())).length,
-    [stageModels]
-  );
-  const independentStageCount = useMemo(
-    () => REQUEST_STAGES.filter((stage) => stageAPIOverrides[stage].enabled).length,
-    [stageAPIOverrides]
-  );
   const selectedServicePresetId = useMemo(
     () => resolveServicePresetId(provider, baseUrl, providerLabel),
     [baseUrl, provider, providerLabel]
@@ -510,86 +488,8 @@ export function APIConfigPanel({
     setModelPickerOpen(false);
   };
 
-  const handleStageModelChange = (stage: RequestStage, value: string) => {
-    setStageModels((prev) => ({
-      ...prev,
-      [stage]: value,
-    }));
-  };
-
-  const handleStageOverrideChange = (stage: RequestStage, patch: Partial<StageAPIOverrideConfig>) => {
-    setStageAPIOverrides((prev) => ({
-      ...prev,
-      [stage]: {
-        ...prev[stage],
-        ...patch,
-      },
-    }));
-  };
-
   const getQuickRouteStages = (routeId: QuickRouteId) => {
     return QUICK_ROUTE_GROUPS.find((group) => group.id === routeId)?.stages || [];
-  };
-
-  const copyDefaultToStage = (stage: RequestStage) => {
-    setStageAPIOverrides((prev) => ({
-      ...prev,
-      [stage]: {
-        ...prev[stage],
-        enabled: true,
-        provider,
-        providerLabel: providerLabel.trim() || PROVIDER_DISPLAY_NAMES[provider],
-        apiKey,
-        model: stageModels[stage] || model,
-        baseUrl,
-      },
-    }));
-    toast.success(`${REQUEST_STAGE_LABELS[stage]} 已复制当前默认接口，你可以继续改成第二套 API。`);
-  };
-
-  const applyStageServicePreset = (stage: RequestStage, presetId: ServicePresetId) => {
-    const preset = getServicePreset(presetId);
-    const currentPresetId = resolveServicePresetId(
-      stageAPIOverrides[stage].provider,
-      stageAPIOverrides[stage].baseUrl,
-      stageAPIOverrides[stage].providerLabel
-    );
-
-    handleStageOverrideChange(stage, {
-      provider: preset.provider,
-      providerLabel: preset.providerLabel,
-      baseUrl: preset.id === 'compatible-custom'
-        ? (currentPresetId === 'compatible-custom' ? stageAPIOverrides[stage].baseUrl || '' : '')
-        : preset.baseUrl,
-    });
-  };
-
-  const handleToggleStageOverride = (stage: RequestStage, enabled: boolean) => {
-    setStageAPIOverrides((prev) => {
-      const current = prev[stage];
-      if (!enabled) {
-        return {
-          ...prev,
-          [stage]: {
-            ...current,
-            enabled: false,
-          },
-        };
-      }
-
-      return {
-        ...prev,
-        [stage]: {
-          ...current,
-          enabled: true,
-          provider: current.provider || provider,
-          providerLabel: current.providerLabel?.trim() || providerLabel.trim() || PROVIDER_DISPLAY_NAMES[provider],
-          apiKey: current.apiKey || apiKey,
-          model: current.model || stageModels[stage] || model,
-          baseUrl: current.baseUrl || baseUrl,
-        },
-      };
-    });
   };
 
   const handleQuickRouteChange = (routeId: QuickRouteId, patch: Partial<StageAPIOverrideConfig>) => {
@@ -887,7 +787,6 @@ export function APIConfigPanel({
             <Badge variant="outline">
               写作分流 {quickRouteStates.writing.anyEnabled ? '已启用' : '未启用'}
             </Badge>
-            <Badge variant="outline">阶段模型覆盖 {stageModelOverrideCount}</Badge>
           </div>
         </div>
 
@@ -1254,268 +1153,6 @@ export function APIConfigPanel({
                           </div>
                         );
                       })}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-4 rounded-2xl border bg-muted/10 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium">3. 更多设置</div>
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        只有你要改显示名、单独给某个阶段换模型，或者精确到单个阶段换 API 时，再展开这里。
-                      </p>
-                    </div>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowMoreOptions((prev) => !prev)}
-                      disabled={disabled || profileBusy}
-                      data-action="toggle-api-more-options"
-                      data-expanded={showMoreOptions ? 'true' : 'false'}
-                    >
-                      {showMoreOptions ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
-                      {showMoreOptions ? '收起' : '展开'}
-                    </Button>
-                  </div>
-
-                  {!showMoreOptions ? (
-                    <div className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                      当前有 {stageModelOverrideCount} 个阶段单独覆盖模型，{independentStageCount} 个阶段使用独立接口。
-                      绝大多数情况下不需要再细调。
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-                        <div className="space-y-2">
-                          <Label>接口显示名</Label>
-                          <Input
-                            value={providerLabel}
-                            onChange={(event) => setProviderLabel(event.target.value)}
-                            placeholder={PROVIDER_DISPLAY_NAMES[provider]}
-                            disabled={disabled || profileBusy}
-                            data-field="provider-label"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            只用于界面展示、请求记录和报错提示，不影响实际请求。
-                          </p>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>单独给某个阶段换模型</Label>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            {REQUEST_STAGES.map((stage) => (
-                              <div key={stage} className="space-y-1 rounded-xl border bg-background/70 p-3">
-                                <div className="text-xs font-medium text-foreground">
-                                  {REQUEST_STAGE_LABELS[stage]}
-                                </div>
-                                <Input
-                                  value={stageModels[stage] || ''}
-                                  onChange={(event) => handleStageModelChange(stage, event.target.value)}
-                                  placeholder="留空则跟随默认模型"
-                                  disabled={disabled || profileBusy}
-                                  data-field={`stage-model-${stage}`}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4 rounded-xl border bg-background/80 p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="space-y-1">
-                            <div className="text-sm font-medium">精细到单个阶段的接口</div>
-                            <p className="text-xs leading-5 text-muted-foreground">
-                              如果上面的分析分流 / 写作分流还不够细，这里可以继续把某个阶段单独拉到另一套 API。
-                            </p>
-                          </div>
-
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowFineGrainedOptions((prev) => !prev)}
-                            disabled={disabled || profileBusy}
-                            data-action="toggle-fine-grained-options"
-                            data-expanded={showFineGrainedOptions ? 'true' : 'false'}
-                          >
-                            {showFineGrainedOptions ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
-                            {showFineGrainedOptions ? '收起' : '展开'}
-                          </Button>
-                        </div>
-
-                        {!showFineGrainedOptions ? (
-                          <div className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                            这里只在你真的要逐阶段微调时再用。上面的“分析流程 / 写作流程”已经能覆盖大多数双 API 场景。
-                          </div>
-                        ) : (
-                          <Tabs defaultValue={REQUEST_STAGES[0]} className="flex-col gap-4">
-                            <TabsList
-                              variant="line"
-                              className="h-auto w-full flex-wrap justify-start gap-2 rounded-xl border border-border bg-background/70 p-2"
-                            >
-                              {REQUEST_STAGES.map((stage) => (
-                                <TabsTrigger
-                                  key={stage}
-                                  value={stage}
-                                  className="h-9 flex-none rounded-lg border border-border bg-background px-3 py-1.5 data-active:border-primary/30"
-                                >
-                                  {REQUEST_STAGE_LABELS[stage]}
-                                  {stageAPIOverrides[stage].enabled ? (
-                                    <Badge variant="secondary" className="ml-1 text-[10px]">独立</Badge>
-                                  ) : null}
-                                </TabsTrigger>
-                              ))}
-                            </TabsList>
-
-                            {REQUEST_STAGES.map((stage) => {
-                              const override = stageAPIOverrides[stage];
-                              const stagePresetId = resolveServicePresetId(
-                                override.provider,
-                                override.baseUrl,
-                                override.providerLabel
-                              );
-
-                              return (
-                                <TabsContent key={stage} value={stage} className="space-y-4">
-                                  <div className="rounded-xl border bg-muted/15 p-4">
-                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                      <div className="space-y-1">
-                                        <div className="flex items-center gap-2 text-sm font-medium">
-                                          <Waypoints className="h-4 w-4 text-muted-foreground" />
-                                          {REQUEST_STAGE_LABELS[stage]}
-                                        </div>
-                                        <p className="text-xs leading-5 text-muted-foreground">
-                                          {override.enabled
-                                            ? '这个阶段会优先使用下面这套独立接口配置。'
-                                            : '这个阶段当前跟随上面的默认接口或分流配置。'}
-                                        </p>
-                                      </div>
-
-                                      <div className="flex items-center gap-2">
-                                        <Switch
-                                          checked={override.enabled}
-                                          onCheckedChange={(checked) => handleToggleStageOverride(stage, checked)}
-                                          disabled={disabled || profileBusy}
-                                          id={`stage-override-${stage}`}
-                                        />
-                                        <Label htmlFor={`stage-override-${stage}`} className="cursor-pointer text-xs text-muted-foreground">
-                                          {override.enabled ? '独立接口' : '跟随默认'}
-                                        </Label>
-                                      </div>
-                                    </div>
-
-                                    <div className="mt-4 space-y-2">
-                                      <Label>阶段模型覆盖</Label>
-                                      <Input
-                                        value={stageModels[stage] || ''}
-                                        onChange={(event) => handleStageModelChange(stage, event.target.value)}
-                                        placeholder={`留空则沿用默认模型：${REQUEST_STAGE_LABELS[stage]}`}
-                                        disabled={disabled || profileBusy}
-                                        data-field={`stage-model-override-${stage}`}
-                                      />
-                                    </div>
-
-                                    {override.enabled ? (
-                                      <div className="mt-4 space-y-4 rounded-xl border bg-background/80 p-4">
-                                        <div className="grid gap-4 lg:grid-cols-2">
-                                          <div className="space-y-2">
-                                            <Label>服务商预设</Label>
-                                            <Select
-                                              value={stagePresetId}
-                                              onValueChange={(value) => applyStageServicePreset(stage, value as ServicePresetId)}
-                                              disabled={disabled || profileBusy}
-                                            >
-                                              <SelectTrigger className="w-full">
-                                                <SelectValue />
-                                              </SelectTrigger>
-                                              <SelectContent sideOffset={10}>
-                                                {SERVICE_PRESETS.map((preset) => (
-                                                  <SelectItem key={preset.id} value={preset.id}>
-                                                    {preset.label}
-                                                  </SelectItem>
-                                                ))}
-                                              </SelectContent>
-                                            </Select>
-                                          </div>
-
-                                          <div className="space-y-2">
-                                            <Label>独立模型</Label>
-                                            <Input
-                                              value={override.model}
-                                              onChange={(event) => handleStageOverrideChange(stage, { model: event.target.value })}
-                                              placeholder={getModelPlaceholder(override.provider)}
-                                              disabled={disabled || profileBusy}
-                                              data-field={`stage-api-model-${stage}`}
-                                            />
-                                          </div>
-                                        </div>
-
-                                        <div className="grid gap-4 lg:grid-cols-2">
-                                          <div className="space-y-2">
-                                            <Label>API URL / 代理地址</Label>
-                                            <Input
-                                              value={override.baseUrl || ''}
-                                              onChange={(event) => handleStageOverrideChange(stage, { baseUrl: event.target.value })}
-                                              placeholder={getBaseUrlPlaceholder(override.provider)}
-                                              disabled={disabled || profileBusy}
-                                              data-field={`stage-api-base-url-${stage}`}
-                                            />
-                                          </div>
-
-                                          <div className="space-y-2">
-                                            <Label>独立 API Key</Label>
-                                            <div className="relative">
-                                              <Input
-                                                type={showStageKeys[stage] ? 'text' : 'password'}
-                                                value={override.apiKey}
-                                                onChange={(event) => handleStageOverrideChange(stage, { apiKey: event.target.value })}
-                                                placeholder={getApiKeyPlaceholder(override.provider)}
-                                                disabled={disabled || profileBusy}
-                                                data-field={`stage-api-key-${stage}`}
-                                              />
-                                              <button
-                                                type="button"
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                                onClick={() => setShowStageKeys((prev) => ({ ...prev, [stage]: !prev[stage] }))}
-                                                data-action="toggle-stage-api-key-visibility"
-                                                data-stage={stage}
-                                              >
-                                                {showStageKeys[stage] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                              </button>
-                                            </div>
-                                          </div>
-                                        </div>
-
-                                        <div className="flex flex-wrap gap-2">
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => copyDefaultToStage(stage)}
-                                            disabled={disabled || profileBusy}
-                                            data-action="copy-default-to-stage"
-                                            data-stage={stage}
-                                          >
-                                            复制默认接口
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="mt-4 rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                                        没启用独立接口时，这个阶段只会使用上面的阶段模型覆盖；如果你想换第二套 API，再打开它。
-                                      </div>
-                                    )}
-                                  </div>
-                                </TabsContent>
-                              );
-                            })}
-                          </Tabs>
-                        )}
-                      </div>
                     </div>
                   )}
                 </div>
