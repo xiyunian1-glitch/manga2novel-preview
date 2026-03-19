@@ -522,6 +522,25 @@ function buildExcerpt(text: string | undefined, headLength = 700, tailLength = 2
   return parts.join('\n...\n');
 }
 
+function compactPromptText(text: string | undefined, maxLength: number): string {
+  const normalized = String(text || '')
+    .trim()
+    .replace(/\n{3,}/g, '\n\n');
+
+  if (!normalized || normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function compactPromptList(values: string[], maxItems: number, maxLength: number): string[] {
+  return values
+    .map((value) => compactPromptText(value, maxLength))
+    .filter(Boolean)
+    .slice(0, Math.max(0, maxItems));
+}
+
 function summarizeCharacterContext(pageAnalyses: PageAnalysis[], limit = 10) {
   const characterMap = new Map<string, {
     name: string;
@@ -1257,22 +1276,22 @@ export function buildWritingPreparationUserPrompt(
   writingMode: WritingMode
 ): string {
   const storyContext = {
-    storyOverview: storySynthesis.storyOverview,
-    worldGuide: storySynthesis.worldGuide,
-    characterGuide: storySynthesis.characterGuide,
-    writingConstraints: storySynthesis.writingConstraints,
+    storyOverview: compactPromptText(storySynthesis.storyOverview, 700),
+    worldGuide: compactPromptText(storySynthesis.worldGuide, 420),
+    characterGuide: compactPromptText(storySynthesis.characterGuide, 700),
+    writingConstraints: compactPromptList(storySynthesis.writingConstraints, 8, 180),
     sceneOutline: storySynthesis.sceneOutline.map((scene) => ({
       sceneId: scene.sceneId,
       title: scene.title,
-      summary: scene.summary,
+      summary: compactPromptText(scene.summary, 180),
       chunkIndexes: scene.chunkIndexes,
     })),
     chunkSummaries: chunkSyntheses.map((chunk) => ({
       index: chunk.index,
       title: chunk.title,
-      summary: chunk.summary,
+      summary: compactPromptText(chunk.summary, 180),
       draftExcerpt: buildExcerpt(chunk.draftText, 220, 100),
-      continuitySummary: chunk.continuitySummary,
+      continuitySummary: compactPromptText(chunk.continuitySummary, 140),
     })),
   };
 

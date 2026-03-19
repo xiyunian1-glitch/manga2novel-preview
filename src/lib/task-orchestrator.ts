@@ -1470,6 +1470,16 @@ function isTransientEmptyCompletionError(message: string): boolean {
     || /returned an empty completion.*completion_tokens\s*=\s*0.*blocked or discarded the response/i.test(message);
 }
 
+function isSafetyFilteringError(message: string): boolean {
+  return /content triggered safety filtering|safety filtering|blocked or discarded the response/i.test(message);
+}
+
+function shouldRecoverWritingPreparationWithFallback(message: string): boolean {
+  return isEmptyCompletionError(message)
+    || isInputTokenLimitError(message)
+    || isSafetyFilteringError(message);
+}
+
 function isPageAnalysisStructureError(message: string): boolean {
   return /malformed json|did not return valid json|did not return a pages array|returned \d+ pages, expected \d+/i.test(message);
 }
@@ -3092,6 +3102,24 @@ export class TaskOrchestrator {
       stopTrackedRuntime(this.state.writingPreparation);
       this.state.writingPreparation.status = 'error';
       this.state.writingPreparation.error = errorMessage;
+
+      if (shouldRecoverWritingPreparationWithFallback(errorMessage)) {
+        const fallback = createFallbackWritingPreparation(
+          this.state.globalSynthesis,
+          this.state.creativeSettings.writingMode
+        );
+
+        this.state.writingPreparation = {
+          ...cloneWritingPreparation(DEFAULT_WRITING_PREPARATION),
+          ...fallback,
+          runtimeMs: this.state.writingPreparation.runtimeMs,
+          retryCount: this.state.writingPreparation.retryCount,
+          status: 'success',
+          error: undefined,
+        };
+        this.emit('chunk-success', 0);
+        return true;
+      }
 
       if (this.shouldAutoSkipOnError()) {
         this.applySkippedWritingPreparation(errorMessage);
