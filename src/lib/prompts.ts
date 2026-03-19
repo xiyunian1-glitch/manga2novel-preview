@@ -728,6 +728,22 @@ function buildChunkContinuityChain(chunkSyntheses: ChunkSynthesis[]) {
   }));
 }
 
+function buildMandatoryDialogueCarryList(
+  dialogueLedger: Array<{
+    pageNumber: number;
+    lineIndex: number;
+    currentSpeaker: string;
+    text: string;
+  }>
+) {
+  return dialogueLedger.map((line) => ({
+    pageNumber: line.pageNumber,
+    lineIndex: line.lineIndex,
+    speaker: line.currentSpeaker,
+    text: line.text,
+  }));
+}
+
 export function buildSectionSystemPrompt(systemPrompt: string): string {
   const { supplementalPrompt, roleAndStyle } = splitSystemPrompt(systemPrompt);
   return composeSystemPrompt(supplementalPrompt, roleAndStyle, SECTION_SYSTEM_PROMPT_BODY);
@@ -1090,6 +1106,7 @@ export function buildSectionUserPrompt(
       };
     });
   const sectionDialogueLedger = buildSectionDialogueLedger(relatedPages);
+  const mandatoryDialogueCarryList = buildMandatoryDialogueCarryList(sectionDialogueLedger);
   const previousScene = storySynthesis.sceneOutline[sectionIndex - 1];
   const nextScene = storySynthesis.sceneOutline[sectionIndex + 1];
   const previousScenePages = previousScene
@@ -1200,6 +1217,7 @@ export function buildSectionUserPrompt(
     'If the source contains explicit dialogue lines, quote them directly in the prose by default, using the corrected speaker attribution whenever direct speech is still present in the scene.',
     'You may make small wording edits only when needed for tense, sentence flow, emotional continuity, or scene blocking, but the original wording, intent, and speaker ownership must remain clearly recognizable.',
     'Do not omit or collapse clear dialogue lines into summary narration unless a tiny adjustment is required to merge an obviously split utterance or remove exact repetition.',
+    'If scene expansion, atmosphere, or inner monologue would force you to drop explicit dialogue, keep the dialogue and reduce the expansion instead.',
     '',
     `【写作模式】\n${WRITING_MODE_LABELS[writingMode]}：${buildWritingModeInstruction(writingMode, 'section')}`,
     writingGuide.trim()
@@ -1207,6 +1225,10 @@ export function buildSectionUserPrompt(
       : '',
     '',
     `【章节展开要求】\n${sectionLengthGuidance}`,
+    '',
+    mandatoryDialogueCarryList.length > 0
+      ? `\n[Mandatory dialogue lines]\nThis block has higher priority than scene expansion or literary polishing. Every line below must appear in novelText as direct speech or as a clearly recognizable minimally edited quote. Do not silently drop any line unless two adjacent entries are obviously one split utterance that should be merged.\n${stringifyPromptData(mandatoryDialogueCarryList)}`
+      : '',
     '',
     sceneSourceBlock,
     sectionDialogueLedger.length > 0
@@ -1227,7 +1249,7 @@ export function buildSectionUserPrompt(
     summaryBlock: storySynthesis.storyOverview ? `【全书剧情概览】\n${storySynthesis.storyOverview}` : '',
     endingBlock: previousContinuity ? `【前一节承接】\n${previousContinuity}` : '',
     continuationBlock: enrichedSceneSourceBlock,
-    outputInstruction: '请只根据以上资料创作，并严格按 JSON 输出 novelText 与 continuitySummary。',
+    outputInstruction: '请只根据以上资料创作，并严格按 JSON 输出 novelText 与 continuitySummary。返回前请自查 [Mandatory dialogue lines] 中的台词是否已带入正文，不要漏掉明确可读的原台词。',
   };
 
   let renderedPrompt = runtimeTemplate;
@@ -1331,10 +1353,11 @@ export function buildWritingPreparationUserPrompt(
     '1. The guide must be reusable across all upcoming sections before drafting starts.',
     '2. Focus on tone, diction, naming consistency, dialogue carry-forward, dialogue handling, paragraph rhythm, perspective consistency, and continuity priorities.',
     '3. The guide should explicitly reinforce this dialogue policy: when the source contains clear original dialogue, drafting should quote it directly by default and allow only small wording edits for scene fit.',
-    '4. Keep it compact, concrete, and actionable for section drafting.',
-    '5. Do not invent new plot facts, characters, settings, or endings.',
-    '6. The voiceGuide field must be a plain string, not an object or array.',
-    '7. Output JSON only.',
+    '4. The guide should also state that preserving explicit source dialogue has higher priority than adding extra atmosphere, exposition, or inner monologue.',
+    '5. Keep it compact, concrete, and actionable for section drafting.',
+    '6. Do not invent new plot facts, characters, settings, or endings.',
+    '7. The voiceGuide field must be a plain string, not an object or array.',
+    '8. Output JSON only.',
     '',
     '[Story synthesis]',
     stringifyPromptData(storyContext),
