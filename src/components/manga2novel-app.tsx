@@ -737,12 +737,7 @@ export default function Manga2NovelApp() {
           </Card>
         ) : null}
 
-        <div
-          className={cn(
-            'grid grid-cols-1 gap-4 xl:items-start',
-            hasPreviewContent && 'xl:grid-cols-[minmax(0,0.96fr)_minmax(380px,1.04fr)]'
-          )}
-        >
+        <div className="grid grid-cols-1 gap-4 xl:items-start">
           <div className="space-y-4">
             <APIConfigPanel
               config={apiConfig}
@@ -811,6 +806,9 @@ export default function Manga2NovelApp() {
                 />
               </div>
             </div>
+            {hasPreviewContent ? (
+              <NovelPreview taskState={taskState} onExport={exportNovel} />
+            ) : null}
             <Card className="border-dashed bg-muted/5">
               <CardHeader className="pb-3">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -866,12 +864,6 @@ export default function Manga2NovelApp() {
               ) : null}
             </Card>
           </div>
-
-          {hasPreviewContent ? (
-            <div>
-              <NovelPreview taskState={taskState} onExport={exportNovel} />
-            </div>
-          ) : null}
         </div>
 
         <Separator className="my-8" />
