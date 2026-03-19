@@ -219,6 +219,7 @@ export interface OrchestratorConfig {
   chunkSize: number;
   synthesisChunkCount: number;
   splitPartCount: number;
+  includeSectionImages: boolean;
   maxConcurrency: number;
   maxRetries: number;
   retryDelay: number;
@@ -288,6 +289,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   chunkSize: 1,
   synthesisChunkCount: 8,
   splitPartCount: 4,
+  includeSectionImages: false,
   maxConcurrency: 3,
   maxRetries: 3,
   retryDelay: 2000,

@@ -71,6 +71,25 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           </div>
         </div>
 
+        <div className="space-y-2 rounded-lg border bg-muted/15 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <Label className="text-sm">章节写作附带场景图</Label>
+              <p className="text-xs text-muted-foreground">
+                关闭后，章节写作只发送结构化文本、台词台账和写作前统稿，不再附带当前场景图片。这样通常更稳，能减少空回和上下文过大。
+              </p>
+            </div>
+            <Switch
+              checked={config.includeSectionImages}
+              onCheckedChange={(checked) => onUpdate({ includeSectionImages: checked })}
+              disabled={disabled}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            当前：{config.includeSectionImages ? '带图写作' : '纯文本写作（默认）'}
+          </p>
+        </div>
+
         {isSplitDraftMode ? (
           <>
             <div className="space-y-2">

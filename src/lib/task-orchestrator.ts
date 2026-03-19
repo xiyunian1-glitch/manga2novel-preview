@@ -2622,7 +2622,7 @@ export class TaskOrchestrator {
   }
 
   private shouldIncludeSceneImagesForSectionWriting(section: NovelSection): boolean {
-    return this.getSectionImageNames(section).length > 0;
+    return this.state.config.includeSectionImages && this.getSectionImageNames(section).length > 0;
   }
 
   private shouldRetrySectionWritingWithReducedImages(message: string): boolean {
