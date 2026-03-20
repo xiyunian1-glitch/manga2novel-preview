@@ -270,6 +270,18 @@ function stripCitationMarkers(text: string): string {
 const JAPANESE_KANA_PATTERN = /[ぁ-ゟ゠-ヿｦ-ﾟー]/u;
 const JAPANESE_KANA_GLOBAL_PATTERN = /[ぁ-ゟ゠-ヿｦ-ﾟー]+/gu;
 const HAN_CHARACTER_PATTERN = /[\p{Script=Han}]/u;
+const EMPTY_TEXT_WRAPPER_PATTERNS = [
+  /“\s*”/g,
+  /‘\s*’/g,
+  /「\s*」/g,
+  /『\s*』/g,
+  /（\s*）/g,
+  /\(\s*\)/g,
+  /【\s*】/g,
+  /\[\s*\]/g,
+  /《\s*》/g,
+  /〈\s*〉/g,
+] as const;
 const JAPANESE_SOUND_EFFECT_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /ゴゴゴ+/gu, replacement: '轰隆隆' },
   { pattern: /ドキドキ/gu, replacement: '怦怦' },
@@ -299,8 +311,11 @@ const JAPANESE_SOUND_EFFECT_REPLACEMENTS: Array<{ pattern: RegExp; replacement: 
 ];
 
 function normalizeTextAfterJapaneseCleanup(text: string): string {
-  return text
-    .replace(/[“”"'`「」『』（）()【】\[\]《》〈〉]\s*[“”"'`「」『』（）()【】\[\]《》〈〉]/g, '')
+  const withoutEmptyWrappers = EMPTY_TEXT_WRAPPER_PATTERNS.reduce((result, pattern) => (
+    result.replace(pattern, '')
+  ), text);
+
+  return withoutEmptyWrappers
     .replace(/(^|[\n（(【\[「『《〈])([，。！？；：、,.!?;:~〜…]+)/g, '$1')
     .replace(/([，。！？；：、,.!?;:~〜…])(?:\s*\1)+/g, '$1')
     .replace(/([—-])(?:\s*\1){2,}/g, '$1$1')
