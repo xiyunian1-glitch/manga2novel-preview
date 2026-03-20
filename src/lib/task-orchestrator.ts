@@ -198,6 +198,7 @@ function buildPageAnalysisPrompt(
 const PAGE_ANALYSIS_TEMPERATURE = 0.1;
 const SYNTHESIS_TEMPERATURE = 0.2;
 const PAGE_ANALYSIS_MAX_TOKENS = 2048;
+const PAGE_ANALYSIS_TOKEN_HEADROOM_PAGES = 2;
 const SYNTHESIS_MAX_TOKENS = 6144;
 const SPLIT_DRAFT_CHUNK_MAX_TOKENS = 8192;
 const WRITING_PREPARATION_MAX_TOKENS = 2048;
@@ -3302,7 +3303,8 @@ export class TaskOrchestrator {
   ): number {
     const perPageBudget = isGeminiFamilyModel(provider, model) ? 1024 : 512;
     const cap = isGeminiFamilyModel(provider, model) ? 16384 : 12288;
-    return Math.min(cap, Math.max(PAGE_ANALYSIS_MAX_TOKENS, 512 + pageCount * perPageBudget));
+    const effectivePageCount = pageCount + (pageCount > 1 ? PAGE_ANALYSIS_TOKEN_HEADROOM_PAGES : 0);
+    return Math.min(cap, Math.max(PAGE_ANALYSIS_MAX_TOKENS, 512 + effectivePageCount * perPageBudget));
   }
 
   private getRequestTimeoutMs(
