@@ -51,6 +51,7 @@ type ProgressItem = {
   stage: RequestStage;
   itemIndex: number;
   batchIndex?: number;
+  runtimeScope?: 'item' | 'batch';
   label: string;
   meta: string;
   status: ChunkStatus;
@@ -120,6 +121,21 @@ function hasAnyItemRuntimeInProgress(taskState: TaskState): boolean {
 }
 
 function formatItemRuntimeLabel(item: ProgressItem, nowMs: number): string | null {
+  const runtimeMs = getLiveRuntimeMs(item.runtimeMs, item.runtimeStartedAt, nowMs);
+  if (runtimeMs <= 0) {
+    return null;
+  }
+
+  const isBatchRuntime = item.runtimeScope === 'batch';
+  if (item.status === 'processing') {
+    return `${isBatchRuntime ? '本批运行时间' : '运行时间'} ${formatRuntime(runtimeMs)}`;
+  }
+
+  return `${isBatchRuntime ? '本批用时' : '用时'} ${formatRuntime(runtimeMs)}`;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function formatItemRuntimeLabelLegacy(item: ProgressItem, nowMs: number): string | null {
   const runtimeMs = getLiveRuntimeMs(item.runtimeMs, item.runtimeStartedAt, nowMs);
   if (runtimeMs <= 0) {
     return null;
@@ -256,6 +272,10 @@ function buildResolutionDetail(
 
 function buildPageItem(taskState: TaskState): ProgressItem[] {
   const dialogueResolutionMap = createDialogueResolutionMap(taskState.chunkSyntheses);
+  const batchSizeByIndex = taskState.pageAnalyses.reduce<Map<number, number>>((result, page) => {
+    result.set(page.analysisBatchIndex, (result.get(page.analysisBatchIndex) || 0) + 1);
+    return result;
+  }, new Map());
 
   return taskState.pageAnalyses.map((page) => {
     const resolvedDialogue = applyDialogueResolutionMap(
@@ -274,6 +294,7 @@ function buildPageItem(taskState: TaskState): ProgressItem[] {
       stage: 'analyze-pages',
       itemIndex: page.index,
       batchIndex: page.analysisBatchIndex,
+      runtimeScope: (batchSizeByIndex.get(page.analysisBatchIndex) || 0) > 1 ? 'batch' : 'item',
       label: `第 ${page.pageNumber} 页`,
       meta: [page.location, page.timeHint].filter(Boolean).join(' / ') || '等待提取场景信息',
       status: page.status,
