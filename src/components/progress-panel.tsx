@@ -716,10 +716,33 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
     if (taskState.currentStage === 'analyze-pages') {
       const processingPages = taskState.pageAnalyses.filter((page) => page.status === 'processing');
       if (processingPages.length > 0) {
-        const targetBatchIndex = processingPages.some((page) => page.analysisBatchIndex === taskState.currentChunkIndex)
-          ? taskState.currentChunkIndex
-          : processingPages[0].analysisBatchIndex;
-        const batchPages = processingPages.filter((page) => page.analysisBatchIndex === targetBatchIndex);
+        const processingBatches = Array.from(
+          processingPages.reduce<Map<number, typeof processingPages>>((result, page) => {
+            const existingPages = result.get(page.analysisBatchIndex);
+            if (existingPages) {
+              existingPages.push(page);
+            } else {
+              result.set(page.analysisBatchIndex, [page]);
+            }
+            return result;
+          }, new Map()).entries()
+        ).sort(([leftBatchIndex, leftPages], [rightBatchIndex, rightPages]) => {
+          const leftStartedAtMs = Date.parse(leftPages[0]?.runtimeStartedAt || '');
+          const rightStartedAtMs = Date.parse(rightPages[0]?.runtimeStartedAt || '');
+          const hasLeftStartedAt = Number.isFinite(leftStartedAtMs);
+          const hasRightStartedAt = Number.isFinite(rightStartedAtMs);
+
+          if (hasLeftStartedAt && hasRightStartedAt && leftStartedAtMs !== rightStartedAtMs) {
+            return leftStartedAtMs - rightStartedAtMs;
+          }
+
+          if (hasLeftStartedAt !== hasRightStartedAt) {
+            return hasLeftStartedAt ? -1 : 1;
+          }
+
+          return leftBatchIndex - rightBatchIndex;
+        });
+        const batchPages = processingBatches[0]?.[1] || [];
         const primaryPage = batchPages[0];
         const firstPageNumber = batchPages[0]?.pageNumber ?? primaryPage?.pageNumber;
         const lastPageNumber = batchPages[batchPages.length - 1]?.pageNumber ?? primaryPage?.pageNumber;
@@ -744,7 +767,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           runtimeLabel: formatRuntime(getLiveRuntimeMs(activeRuntimeItem.runtimeMs, activeRuntimeItem.runtimeStartedAt, nowMs)),
         }
       : null;
-  }, [activeRuntimeItem, nowMs, taskState.currentChunkIndex, taskState.currentStage, taskState.pageAnalyses]);
+  }, [activeRuntimeItem, nowMs, taskState.currentStage, taskState.pageAnalyses]);
 
   const includeChunkStage = !isSplitDraftMode(taskState);
   const totalUnits = taskState.pageAnalyses.length
