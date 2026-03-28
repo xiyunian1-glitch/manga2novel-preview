@@ -207,7 +207,8 @@ export function ImageUploadPanel({
               漫画图片
             </CardTitle>
             <CardDescription className="max-w-2xl text-[13px] leading-6 text-muted-foreground/90">
-              把整话画稿按阅读顺序整理进素材台。这里既是上传入口，也是后续逐页分析与章节拆分的原始页序基线。
+              <span className="sm:hidden">按阅读顺序整理画稿，页序会直接影响后续分析和章节拆分。</span>
+              <span className="hidden sm:inline">把整话画稿按阅读顺序整理进素材台。这里既是上传入口，也是后续逐页分析与章节拆分的原始页序基线。</span>
             </CardDescription>
           </div>
 
@@ -233,7 +234,7 @@ export function ImageUploadPanel({
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
           <div
             className={cn(
-              'rounded-[1.35rem] border-2 border-dashed p-6 transition-all cursor-pointer',
+              'rounded-[1.35rem] border-2 border-dashed p-4 transition-all cursor-pointer sm:p-6',
               isDragOver
                 ? 'border-primary bg-primary/7 shadow-[0_18px_40px_rgba(37,71,184,0.12)]'
                 : 'border-border/80 bg-background/55 hover:border-primary/40 hover:bg-background/72',
@@ -253,11 +254,12 @@ export function ImageUploadPanel({
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-[1.1rem] border border-border/70 bg-background/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
                 <ImagePlus className="h-6 w-6 text-primary" />
               </div>
-              <div className="font-serif text-[1.22rem] font-semibold text-foreground">
+              <div className="font-serif text-[1.08rem] font-semibold text-foreground sm:text-[1.22rem]">
                 把整话画稿拖进素材台，建立这次书稿的页序。
               </div>
               <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                支持 JPG / PNG / WebP。你可以一次性拖入多张图片，也可以直接选择整个文件夹；后续排序会决定逐页分析和章节生成的基准顺序。
+                <span className="sm:hidden">支持 JPG / PNG / WebP；也可整文件夹导入。</span>
+                <span className="hidden sm:inline">支持 JPG / PNG / WebP。你可以一次性拖入多张图片，也可以直接选择整个文件夹；后续排序会决定逐页分析和章节生成的基准顺序。</span>
               </p>
               <div
                 className="mt-4 flex flex-wrap items-center justify-center gap-2"
@@ -289,7 +291,7 @@ export function ImageUploadPanel({
                   上传文件夹
                 </Button>
               </div>
-              <div className="mt-5 grid gap-2.5 text-left sm:grid-cols-3">
+              <div className="mt-5 grid grid-cols-2 gap-2.5 text-left sm:grid-cols-3">
                 <div className="rounded-2xl border border-border/70 bg-background/68 px-3 py-3">
                   <div className="text-[11px] tracking-[0.12em] text-muted-foreground">页序规则</div>
                   <div className="mt-1 text-sm leading-6 text-foreground/90">按文件名自然排序，可拖拽微调顺序。</div>
@@ -298,7 +300,7 @@ export function ImageUploadPanel({
                   <div className="text-[11px] tracking-[0.12em] text-muted-foreground">移动端兼容</div>
                   <div className="mt-1 text-sm leading-6 text-foreground/90">手机能否直选文件夹取决于浏览器，上传单图同样可用。</div>
                 </div>
-                <div className="rounded-2xl border border-border/70 bg-background/68 px-3 py-3">
+                <div className="col-span-2 rounded-2xl border border-border/70 bg-background/68 px-3 py-3 sm:col-span-1">
                   <div className="text-[11px] tracking-[0.12em] text-muted-foreground">后续用途</div>
                   <div className="mt-1 text-sm leading-6 text-foreground/90">这些页会进入逐页分析、整书综合和章节拆分。</div>
                 </div>
@@ -308,7 +310,7 @@ export function ImageUploadPanel({
 
           <div className="rounded-[1.35rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
             <div className="text-[11px] tracking-[0.12em] text-muted-foreground">MATERIAL OVERVIEW</div>
-            <div className="mt-3 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-1">
+            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-2 xl:grid-cols-1">
               <div className="story-stat py-3">
                 <div className="story-stat-label">总页数</div>
                 <div className="story-stat-value text-[1.35rem]">{images.length || '0'}</div>
@@ -372,9 +374,12 @@ export function ImageUploadPanel({
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] tracking-[0.12em] text-muted-foreground">PAGE STRIP</div>
-                  <div className="mt-1 text-sm text-foreground/90">点击缩略图查看大图，拖拽下方列表可微调阅读顺序。</div>
+                  <div className="mt-1 text-sm text-foreground/90">
+                    <span className="sm:hidden">点缩略图看大图，下方列表可拖拽改顺序。</span>
+                    <span className="hidden sm:inline">点击缩略图查看大图，拖拽下方列表可微调阅读顺序。</span>
+                  </div>
                 </div>
-                <Badge variant="outline">首尾顺序已锁定在当前列表</Badge>
+                <Badge variant="outline" className="hidden sm:inline-flex">首尾顺序已锁定在当前列表</Badge>
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {images.map((img, index) => (
@@ -402,7 +407,7 @@ export function ImageUploadPanel({
               </div>
             </div>
 
-            <div className="max-h-[360px] overflow-y-auto overscroll-contain pr-2">
+            <div className="max-h-[300px] overflow-y-auto overscroll-contain pr-2 sm:max-h-[360px]">
               <div className="space-y-2">
               {images.map((img, index) => (
                 <div
@@ -416,8 +421,8 @@ export function ImageUploadPanel({
                   onDragOver={(e) => handleItemDragOver(e, index)}
                   onDragEnd={handleItemDragEnd}
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <div className="flex items-center gap-3 sm:min-w-[15rem]">
+                  <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+                    <div className="flex items-center gap-2.5 sm:min-w-[15rem]">
                       <div className="flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground">
                         <GripVertical className="h-3.5 w-3.5 cursor-grab" />
                         第 {index + 1} 页
@@ -435,7 +440,7 @@ export function ImageUploadPanel({
                           width={96}
                           height={128}
                           unoptimized
-                          className="h-16 w-12 object-cover"
+                          className="h-14 w-10 object-cover sm:h-16 sm:w-12"
                           draggable={false}
                         />
                       </button>
@@ -448,10 +453,10 @@ export function ImageUploadPanel({
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <span>原图 {formatSize(img.originalSize)}</span>
                         {img.compressedSize && img.compressedSize !== img.originalSize ? (
-                          <span className="text-emerald-700">处理后 {formatSize(img.compressedSize)}</span>
+                          <span className="hidden text-emerald-700 sm:inline">处理后 {formatSize(img.compressedSize)}</span>
                         ) : null}
                         {img.status === 'ready' && img.compressedSize === img.originalSize ? (
-                          <span className="text-sky-700">原图直传</span>
+                          <span className="hidden text-sky-700 sm:inline">原图直传</span>
                         ) : null}
                       </div>
                     </div>

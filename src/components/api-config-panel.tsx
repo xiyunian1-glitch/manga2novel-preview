@@ -904,7 +904,8 @@ export function APIConfigPanel({
               API 配置
             </CardTitle>
             <CardDescription>
-              先配一套默认接口就能直接用；只有你想把分析和写作拆开，才需要继续往下配第二套 API。
+              <span className="sm:hidden">先配默认接口，双路分流按需再开。</span>
+              <span className="hidden sm:inline">先配一套默认接口就能直接用；只有你想把分析和写作拆开，才需要继续往下配第二套 API。</span>
             </CardDescription>
           </div>
 
@@ -917,6 +918,7 @@ export function APIConfigPanel({
               type="button"
               variant="outline"
               size="sm"
+              className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
               onClick={() => openEditorAtStep('profile')}
               data-action="open-api-config-editor"
             >
@@ -927,13 +929,13 @@ export function APIConfigPanel({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <div className="grid gap-3 xl:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {routeOverviewCards.map((card) => (
             <button
               key={card.key}
               type="button"
               className={cn(
-                'rounded-[1.2rem] border px-4 py-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_16px_34px_rgba(44,33,24,0.08)]',
+                'rounded-[1.2rem] border px-3.5 py-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_16px_34px_rgba(44,33,24,0.08)] sm:px-4 sm:py-4',
                 card.tone === 'ready' && 'border-primary/20 bg-primary/6',
                 card.tone === 'pending' && 'border-amber-200 bg-amber-50/70',
                 card.tone === 'active' && 'border-primary/15 bg-background/70',
@@ -946,7 +948,7 @@ export function APIConfigPanel({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.title}</div>
-                  <div className="mt-2 font-serif text-[1.05rem] font-semibold leading-snug text-foreground">
+                  <div className="mt-2 font-serif text-[0.98rem] font-semibold leading-snug text-foreground sm:text-[1.05rem]">
                     {card.value}
                   </div>
                 </div>
@@ -954,10 +956,13 @@ export function APIConfigPanel({
                   {card.badge}
                 </Badge>
               </div>
-              <div className="mt-3 text-xs leading-5 text-muted-foreground">{card.description}</div>
+              <div className="mt-3 text-xs leading-5 text-muted-foreground">
+                <span className="sm:hidden">{card.badge}</span>
+                <span className="hidden sm:inline">{card.description}</span>
+              </div>
               <div className="mt-3 rounded-2xl border border-border/60 bg-background/70 px-3 py-2.5">
                 <div className="text-xs font-medium text-foreground">{card.detail}</div>
-                <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{card.extra}</div>
+                <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.extra}</div>
               </div>
             </button>
           ))}
@@ -986,7 +991,7 @@ export function APIConfigPanel({
               </p>
             </div>
 
-            <div className="flex min-w-0 flex-wrap gap-2">
+            <div className="grid min-w-0 gap-2 sm:flex sm:flex-wrap">
               {summaryItems.map((item) => (
                 <div
                   key={item.label}
@@ -1007,13 +1012,16 @@ export function APIConfigPanel({
           <div className="mt-3 rounded-[1.1rem] border border-dashed border-border/70 bg-background/65 px-4 py-3">
             <div className="text-[11px] tracking-[0.12em] text-muted-foreground">RECOMMENDED FLOW</div>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs leading-5 text-foreground/88">
-              <span>1. 选服务商预设</span>
-              <span className="text-muted-foreground">→</span>
-              <span>2. 填 API Key</span>
-              <span className="text-muted-foreground">→</span>
-              <span>3. 选模型并保存</span>
-              <span className="text-muted-foreground">→</span>
-              <span>4. 只有需要双路接口时再开分流</span>
+              <span className="sm:hidden">预设 → Key → 模型 → 按需分流</span>
+              <>
+                <span className="hidden sm:inline">1. 选服务商预设</span>
+                <span className="hidden text-muted-foreground sm:inline">→</span>
+                <span className="hidden sm:inline">2. 填 API Key</span>
+                <span className="hidden text-muted-foreground sm:inline">→</span>
+                <span className="hidden sm:inline">3. 选模型并保存</span>
+                <span className="hidden text-muted-foreground sm:inline">→</span>
+                <span className="hidden sm:inline">4. 只有需要双路接口时再开分流</span>
+              </>
             </div>
           </div>
 
@@ -1034,7 +1042,7 @@ export function APIConfigPanel({
         </div>
 
         <Dialog open={editorOpen} onOpenChange={handleEditorOpenChange}>
-          <DialogContent className="w-[min(96vw,78rem)] overflow-hidden sm:max-w-6xl" data-dialog="api-config-editor">
+          <DialogContent className="w-[min(96vw,78rem)] overflow-hidden p-4 sm:max-w-6xl sm:p-6" data-dialog="api-config-editor">
             <DialogHeader className="space-y-2">
               <DialogTitle>API 配置</DialogTitle>
               <DialogDescription>
@@ -1044,7 +1052,7 @@ export function APIConfigPanel({
 
             <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
               <div className="space-y-3">
-                <div className="rounded-[1.25rem] border border-border/75 bg-background/62 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+                <div className="hidden rounded-[1.25rem] border border-border/75 bg-background/62 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] lg:block">
                   <div className="text-[11px] tracking-[0.12em] text-muted-foreground">CURRENT STEP</div>
                   <div className="mt-2 font-serif text-[1.18rem] font-semibold text-foreground">
                     {currentEditorStep.order} · {currentEditorStep.label}
@@ -1058,7 +1066,7 @@ export function APIConfigPanel({
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-1 lg:gap-2">
                   {editorSteps.map((step) => {
                     const isActive = editorStep === step.id;
 
@@ -1067,7 +1075,7 @@ export function APIConfigPanel({
                         key={step.id}
                         type="button"
                         className={cn(
-                          'w-full rounded-[1.1rem] border px-4 py-3 text-left transition',
+                          'w-full rounded-[1.1rem] border px-3 py-3 text-left transition sm:px-4',
                           isActive
                             ? 'border-primary/25 bg-primary/7 shadow-[0_16px_34px_rgba(37,71,184,0.1)]'
                             : 'border-border/75 bg-background/55 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-background/72'
@@ -1083,8 +1091,8 @@ export function APIConfigPanel({
                           </div>
                           <Badge variant={isActive ? 'default' : 'outline'}>{step.badge}</Badge>
                         </div>
-                        <div className="mt-2 text-sm text-foreground/88">{step.title}</div>
-                        <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{step.description}</div>
+                        <div className="mt-2 hidden text-sm text-foreground/88 lg:block">{step.title}</div>
+                        <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground lg:block">{step.description}</div>
                       </button>
                     );
                   })}
@@ -1093,6 +1101,12 @@ export function APIConfigPanel({
 
               <div className="max-h-[78vh] overflow-y-auto pr-1">
                 <div className="space-y-4">
+                  <div className="rounded-[1rem] border border-border/70 bg-background/62 px-3 py-3 lg:hidden">
+                    <div className="text-[11px] tracking-[0.12em] text-muted-foreground">当前步骤</div>
+                    <div className="mt-1 font-medium text-foreground">{currentEditorStep.order} · {currentEditorStep.label}</div>
+                    <div className="mt-1 text-xs leading-5 text-muted-foreground">{currentEditorStep.description}</div>
+                  </div>
+
                   {editorStep === 'profile' ? (
                     <>
                       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
@@ -1165,7 +1179,7 @@ export function APIConfigPanel({
                     </p>
                   </div>
 
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
                     {SERVICE_PRESETS.map((preset) => {
                       const isActive = selectedServicePresetId === preset.id;
 
@@ -1620,6 +1634,7 @@ export function APIConfigPanel({
                       type="button"
                       size="sm"
                       variant="outline"
+                      className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
                       onClick={handleDuplicateProfile}
                       disabled={disabled || profileBusy}
                       data-action="duplicate-api-profile"
@@ -1631,6 +1646,7 @@ export function APIConfigPanel({
                       type="button"
                       size="sm"
                       variant="ghost"
+                      className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
                       onClick={handleDeleteProfile}
                       disabled={disabled || profileBusy || profiles.length <= 1}
                       data-action="delete-api-profile"
@@ -1646,6 +1662,7 @@ export function APIConfigPanel({
                         type="button"
                         size="sm"
                         variant="outline"
+                        className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
                         onClick={() => setEditorStep(editorSteps[currentEditorStepIndex - 1].id)}
                         data-action="previous-api-config-step"
                       >
@@ -1657,6 +1674,7 @@ export function APIConfigPanel({
                         type="button"
                         size="sm"
                         variant="outline"
+                        className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
                         onClick={() => setEditorStep(editorSteps[currentEditorStepIndex + 1].id)}
                         data-action="next-api-config-step"
                       >
@@ -1667,6 +1685,7 @@ export function APIConfigPanel({
                       type="button"
                       size="sm"
                       variant="outline"
+                      className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
                       onClick={() => handleEditorOpenChange(false)}
                       data-action="cancel-api-config-editor"
                     >
@@ -1675,6 +1694,7 @@ export function APIConfigPanel({
                     <Button
                       type="button"
                       size="sm"
+                      className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
                       onClick={handleSave}
                       disabled={disabled || profileBusy || !hasDraftChanges}
                       data-action="save-api-config"

@@ -936,7 +936,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground sm:text-sm">
             <span>{Math.round(progress)}%</span>
             <span
-              className="max-w-[15rem] truncate text-center sm:max-w-[20rem]"
+              className="hidden max-w-[15rem] truncate text-center sm:inline sm:max-w-[20rem]"
               title={activeRuntimeDescriptor ? `${activeRuntimeDescriptor.label} · ${activeRuntimeDescriptor.runtimeLabel || '--'}` : '当前没有正在处理的条目'}
             >
               {activeRuntimeDescriptor ? `${activeRuntimeDescriptor.label} · ${activeRuntimeDescriptor.runtimeLabel || '--'}` : '当前项用时 --'}
@@ -945,12 +945,12 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           </div>
           <Progress value={progress} />
         </div>
-        <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
           {overviewCards.map((card) => (
             <div key={card.label} className="rounded-[1.1rem] border border-border/70 bg-background/58 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
               <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.label}</div>
-              <div className="mt-2 font-serif text-[1.15rem] font-semibold leading-tight text-foreground">{card.value}</div>
-              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{card.hint}</div>
+              <div className="mt-2 font-serif text-[1rem] font-semibold leading-tight text-foreground sm:text-[1.15rem]">{card.value}</div>
+              <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.hint}</div>
             </div>
           ))}
         </div>
@@ -970,7 +970,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           </div>
         ) : null}
 
-        <div className="grid gap-2.5 md:grid-cols-2 2xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 2xl:grid-cols-4">
           {stageCards.map((card) => (
             <button
               key={card.stage}
@@ -983,11 +983,11 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
               onClick={() => setSelectedStage(card.stage)}
             >
               <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.title}</div>
-              <div className="mt-2 font-serif text-[1.15rem] font-semibold leading-tight">{card.value}</div>
+              <div className="mt-2 font-serif text-[1rem] font-semibold leading-tight sm:text-[1.15rem]">{card.value}</div>
               {card.secondary ? (
-                <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{card.secondary}</div>
+                <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.secondary}</div>
               ) : null}
-              <div className="mt-2 text-[11px] leading-5 text-muted-foreground">{card.hint}</div>
+              <div className="mt-2 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.hint}</div>
             </button>
           ))}
         </div>
@@ -1006,7 +1006,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           </div>
           <div
             ref={listScrollRef}
-            className="max-h-[min(460px,calc(100vh-19rem))] overflow-y-auto overscroll-contain"
+            className="max-h-[min(340px,calc(100vh-19rem))] overflow-y-auto overscroll-contain sm:max-h-[min(460px,calc(100vh-19rem))]"
           >
             <div className={useDenseListLayout ? 'space-y-2 p-2.5' : 'space-y-2.5 p-3'}>
               {items.length === 0 ? (
@@ -1034,14 +1034,14 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                       </div>
                       <div className="text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">{item.meta}</div>
                       {(item.stage !== 'analyze-pages' || item.status !== 'processing' || primaryProcessingPageKeys.has(item.key)) && formatItemRuntimeLabel(item, nowMs) ? (
-                        <div className="text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
+                        <div className="hidden text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere] sm:block">
                           {formatItemRuntimeLabel(item, nowMs)}
                         </div>
                       ) : null}
                       <div
                         className={useDenseListLayout
                           ? 'max-h-11 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]'
-                          : 'whitespace-pre-wrap text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]'}
+                          : 'max-h-10 overflow-hidden whitespace-pre-wrap text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere] sm:max-h-none sm:text-sm sm:leading-6'}
                       >
                         {item.preview}
                       </div>
@@ -1050,7 +1050,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 px-2.5"
+                        className="h-7 px-2 text-xs sm:h-8 sm:px-2.5 sm:text-sm"
                         onClick={() => setSelectedItem(item)}
                       >
                         <Eye className="mr-1 h-3.5 w-3.5" />
@@ -1060,7 +1060,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-8 px-2.5"
+                          className="h-7 px-2 text-xs sm:h-8 sm:px-2.5 sm:text-sm"
                           onClick={() => handleStartEdit(item)}
                         >
                           <Pencil className="mr-1 h-3.5 w-3.5" />
@@ -1071,7 +1071,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                         <Button
                           size="sm"
                         variant="outline"
-                        className="h-8 px-2.5"
+                        className="h-7 px-2 text-xs sm:h-8 sm:px-2.5 sm:text-sm"
                         onClick={() => handleRegenerate(item)}
                         disabled={regeneratingKey === item.key}
                         title={getRegenerateActionLabel(item)}
