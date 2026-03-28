@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Noto_Sans_SC, Noto_Serif_SC } from "next/font/google";
 import "./globals.css";
+import { DEFAULT_PREVIEW_THEME } from "@/lib/theme-presets";
 
 const notoSans = Noto_Sans_SC({
   variable: "--font-noto-sans-sc",
@@ -24,6 +25,16 @@ export const metadata: Metadata = {
   description: "预览版纯前端 AI 工具，将漫画图片自动转化为连贯的小说文字",
 };
 
+const themeInitScript = `(() => {
+  try {
+    const stored = window.localStorage.getItem('m2n-preview-theme');
+    const theme = stored || '${DEFAULT_PREVIEW_THEME}';
+    document.documentElement.dataset.theme = theme;
+  } catch {
+    document.documentElement.dataset.theme = '${DEFAULT_PREVIEW_THEME}';
+  }
+})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -34,6 +45,7 @@ export default function RootLayout({
       <body
         className={`${notoSans.variable} ${geistMono.variable} ${notoSerif.variable} antialiased`}
       >
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         {children}
       </body>
     </html>

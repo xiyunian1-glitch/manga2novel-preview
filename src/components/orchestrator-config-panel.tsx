@@ -47,7 +47,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
   ];
 
   return (
-    <Card className="border-border/75 bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(248,242,233,0.82))] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]">
+    <Card className="workbench-panel border-border/75">
       <CardHeader className="space-y-3 pb-4">
         <div className="space-y-2">
           <div className="editorial-kicker">Queue Design</div>
@@ -76,7 +76,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           <Badge variant="outline">最后再调并发和重试</Badge>
         </div>
 
-        <div className="space-y-3 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="space-y-1">
             <Label className="text-sm">流程模式</Label>
             <p className="text-xs text-muted-foreground">
@@ -99,7 +99,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           </Tabs>
         </div>
 
-        <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="space-y-1">
               <Label className="text-sm">写作后全书润色</Label>
@@ -115,7 +115,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           </div>
         </div>
 
-        <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="space-y-1">
               <Label className="text-sm">章节写作附带场景图</Label>
@@ -136,7 +136,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
 
         {isSplitDraftMode ? (
           <>
-            <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+            <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="space-y-1">
                   <Label className="text-sm">章节默认分段数（直综合写作）</Label>
@@ -173,7 +173,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
               />
             </div>
 
-            <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+            <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
               <div className="flex items-center justify-between">
                 <Label className="text-sm">每组图片数（逐页分析）</Label>
                 <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
@@ -195,7 +195,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           </>
         ) : (
           <>
-            <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+            <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
               <div className="flex items-center justify-between">
                 <Label className="text-sm">每组图片数（逐页分析）</Label>
                 <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
@@ -215,7 +215,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
               </p>
             </div>
 
-            <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+            <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
               <div className="flex items-center justify-between">
                 <Label className="text-sm">分块综合数量</Label>
                 <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
@@ -237,7 +237,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           </>
         )}
 
-        <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between">
             <Label className="text-sm">并发请求数</Label>
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
@@ -257,7 +257,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           </p>
         </div>
 
-        <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between">
             <Label className="text-sm">最大重试次数</Label>
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
@@ -274,7 +274,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           />
         </div>
 
-        <div className="space-y-2 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between">
             <Label className="text-sm">重试间隔 (ms)</Label>
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">

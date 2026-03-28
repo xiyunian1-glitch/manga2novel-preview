@@ -123,7 +123,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
   return (
     <>
       <Card
-        className="flex flex-col overflow-hidden border-border/70 bg-[linear-gradient(180deg,rgba(255,252,247,0.96),rgba(249,242,232,0.9))] shadow-[0_24px_70px_rgba(44,33,24,0.12)] xl:sticky xl:top-[6.8rem] xl:max-h-[calc(100vh-7.8rem)] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]"
+        className="workbench-panel-strong flex flex-col overflow-hidden border-border/70 xl:sticky xl:top-[6.8rem] xl:max-h-[calc(100vh-7.8rem)]"
         data-panel="novel-preview"
         data-preview-mode={hasFinalPolish ? 'final-polish' : visibleSections.length > 0 ? 'sections' : 'empty'}
       >
@@ -225,7 +225,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
             </div>
           </div>
           {!expanded ? (
-            <div className="rounded-[1.2rem] border border-border/70 bg-background/55 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+            <div className="workbench-panel-soft rounded-[1.2rem] border border-border/70 px-4 py-3">
               <div className="text-sm leading-7 text-muted-foreground">{previewSummary}</div>
             </div>
           ) : renderPreviewBody(previewHeightClass)}
@@ -233,7 +233,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
       </Card>
 
       <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
-          <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden border-border/70 bg-[linear-gradient(180deg,rgba(255,252,247,0.98),rgba(249,242,232,0.95))] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.98),rgba(19,18,16,0.95))]">
+          <DialogContent className="workbench-panel-strong max-h-[92vh] max-w-5xl overflow-hidden border-border/70">
           <DialogHeader>
             <DialogTitle>小说预览</DialogTitle>
           </DialogHeader>

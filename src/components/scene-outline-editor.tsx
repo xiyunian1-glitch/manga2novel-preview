@@ -311,7 +311,7 @@ export function SceneOutlineEditor({
   };
 
   return (
-    <Card className="border-primary/20 bg-[linear-gradient(180deg,rgba(37,71,184,0.08),rgba(255,252,247,0.92))] dark:bg-[linear-gradient(180deg,rgba(37,71,184,0.14),rgba(24,22,19,0.96))]">
+    <Card className="workbench-panel border-primary/20">
       <CardHeader className="space-y-4 pb-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">

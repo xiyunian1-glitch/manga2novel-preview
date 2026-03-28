@@ -77,7 +77,7 @@ export function CreativeSettingsPanel({
   };
 
   return (
-    <Card className="relative z-10 border-border/75 bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(248,242,233,0.82))] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]" data-panel="creative-settings-panel">
+    <Card className="workbench-panel relative z-10 border-border/75" data-panel="creative-settings-panel">
       <CardHeader className="space-y-3 pb-4">
         <div className="space-y-2">
           <div className="editorial-kicker">Writing Direction</div>
@@ -109,7 +109,7 @@ export function CreativeSettingsPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="mb-3 flex flex-wrap gap-2">
             <Badge variant="default">先选预设</Badge>
             <Badge variant="outline">再调写作模式</Badge>
@@ -120,7 +120,7 @@ export function CreativeSettingsPanel({
           </p>
         </div>
 
-        <div className="space-y-2.5 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between gap-3">
             <Label>风格预设</Label>
             <div className="flex flex-wrap items-center gap-2">
@@ -169,7 +169,7 @@ export function CreativeSettingsPanel({
           </p>
         </div>
 
-        <div className="space-y-2.5 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between gap-3">
             <Label>写作模式</Label>
           </div>
@@ -195,7 +195,7 @@ export function CreativeSettingsPanel({
           </p>
         </div>
 
-        <div className="space-y-2.5 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between gap-3">
             <Label>Temperature</Label>
             <span className="rounded bg-muted px-2 py-0.5 text-sm font-mono">
@@ -215,7 +215,7 @@ export function CreativeSettingsPanel({
           </p>
         </div>
 
-        <div className="space-y-2.5 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between gap-3">
             <Label>特殊提示词</Label>
             <Button
@@ -247,7 +247,7 @@ export function CreativeSettingsPanel({
           )}
         </div>
 
-        <div className="space-y-2.5 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between gap-3">
             <Label>风格</Label>
             <Button
@@ -279,7 +279,7 @@ export function CreativeSettingsPanel({
           )}
         </div>
 
-        <div className="space-y-2.5 rounded-[1.2rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="flex items-center justify-between gap-3">
             <Label>系统提示词</Label>
             <Button

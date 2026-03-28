@@ -197,7 +197,7 @@ export function ImageUploadPanel({
   const lastImage = images[images.length - 1] || null;
 
   return (
-    <Card className="border-border/75 bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(248,242,233,0.82))] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]">
+    <Card className="workbench-panel border-border/75">
       <CardHeader className="space-y-3 pb-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
@@ -308,7 +308,7 @@ export function ImageUploadPanel({
             </div>
           </div>
 
-          <div className="rounded-[1.35rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+          <div className="workbench-panel-soft rounded-[1.35rem] border border-border/75 p-4">
             <div className="text-[11px] tracking-[0.12em] text-muted-foreground">MATERIAL OVERVIEW</div>
             <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-2 xl:grid-cols-1">
               <div className="story-stat py-3">
@@ -370,7 +370,7 @@ export function ImageUploadPanel({
 
         {images.length > 0 && (
           <>
-            <div className="rounded-[1.2rem] border border-border/75 bg-background/58 p-3">
+            <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-3">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] tracking-[0.12em] text-muted-foreground">PAGE STRIP</div>

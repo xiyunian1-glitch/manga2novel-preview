@@ -28,7 +28,7 @@ export function MobileWorkbenchSwitcher({
   const previewSection = sections.find((section) => section.key === 'preview' && section.available);
 
   return (
-    <Card className="border-border/75 bg-background/72 shadow-[0_18px_40px_rgba(44,33,24,0.08)]">
+    <Card className="workbench-panel border-border/75">
       <CardContent className="space-y-3 px-4 py-4">
         <div className="flex items-start justify-between gap-3">
           <div>

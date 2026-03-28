@@ -37,7 +37,7 @@ export function AdvancedSettingsDeck({
   selectedKey,
 }: AdvancedSettingsDeckProps) {
   return (
-    <Card className="overflow-hidden border-border/75 bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(248,242,233,0.82))] shadow-[0_20px_48px_rgba(44,33,24,0.08)] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]">
+    <Card className="workbench-panel overflow-hidden border-border/75">
       <CardHeader className="space-y-4 pb-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
@@ -75,7 +75,7 @@ export function AdvancedSettingsDeck({
                   'rounded-[1.25rem] border px-4 py-4 text-left transition',
                   isActive
                     ? 'border-primary/25 bg-primary/7 shadow-[0_18px_40px_rgba(37,71,184,0.1)]'
-                    : 'border-border/75 bg-background/58 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-background/72'
+                    : 'border-border/75 workbench-panel-soft hover:-translate-y-0.5 hover:border-primary/20 hover:bg-background/72'
                 )}
                 onClick={() => onFocusChange(section.key)}
               >
@@ -106,39 +106,19 @@ export function AdvancedSettingsDeck({
 
       {open ? (
         <CardContent className="space-y-4 border-t border-border/70 bg-background/24 pt-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-1">
-              <div className="text-[11px] tracking-[0.12em] text-muted-foreground">
-                {sections[selectedKey].kicker}
-              </div>
-              <div className="font-serif text-[1.15rem] font-semibold text-foreground">
-                {sections[selectedKey].title}
-              </div>
-              <div className="text-sm leading-6 text-muted-foreground">
-                {sections[selectedKey].description}
-              </div>
+          <div className="space-y-1">
+            <div className="text-[11px] tracking-[0.12em] text-muted-foreground">
+              {sections[selectedKey].kicker}
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={selectedKey === 'creative' ? 'default' : 'outline'}
-                onClick={() => onFocusChange('creative')}
-              >
-                写作指令
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={selectedKey === 'pipeline' ? 'default' : 'outline'}
-                onClick={() => onFocusChange('pipeline')}
-              >
-                流水线参数
-              </Button>
+            <div className="font-serif text-[1.15rem] font-semibold text-foreground">
+              {sections[selectedKey].title}
+            </div>
+            <div className="text-sm leading-6 text-muted-foreground">
+              {sections[selectedKey].description}
             </div>
           </div>
 
-          <div className="rounded-[1.1rem] border border-border/70 bg-background/60 px-4 py-3">
+          <div className="workbench-panel-soft rounded-[1.1rem] border border-border/70 px-4 py-3">
             <div className="flex flex-wrap gap-2">
               {sections[selectedKey].summary.map((item) => (
                 <Badge key={item} variant="outline">{item}</Badge>

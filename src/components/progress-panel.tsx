@@ -921,7 +921,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
   };
 
   return (
-    <Card className="border-border/75 bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(248,242,233,0.82))] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]">
+    <Card className="workbench-panel border-border/75">
       <CardHeader className="space-y-3 pb-4">
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
@@ -947,7 +947,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
         </div>
         <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
           {overviewCards.map((card) => (
-            <div key={card.label} className="rounded-[1.1rem] border border-border/70 bg-background/58 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+            <div key={card.label} className="workbench-panel-soft rounded-[1.1rem] border border-border/70 px-3 py-3">
               <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.label}</div>
               <div className="mt-2 font-serif text-[1rem] font-semibold leading-tight text-foreground sm:text-[1.15rem]">{card.value}</div>
               <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.hint}</div>

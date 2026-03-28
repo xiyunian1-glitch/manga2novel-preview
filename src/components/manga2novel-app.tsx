@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   BookOpenText,
   Pause,
@@ -19,6 +19,7 @@ import { MobileWorkbenchSwitcher } from '@/components/mobile-workbench-switcher'
 import { NovelPreview } from '@/components/novel-preview';
 import { OrchestratorConfigPanel } from '@/components/orchestrator-config-panel';
 import { ProgressPanel } from '@/components/progress-panel';
+import { ThemeSwitcher } from '@/components/theme-switcher';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,6 +35,7 @@ import {
   WORKFLOW_MODE_LABELS,
   WRITING_MODE_LABELS,
 } from '@/lib/types';
+import { DEFAULT_PREVIEW_THEME, isPreviewTheme, type PreviewTheme } from '@/lib/theme-presets';
 import { cn } from '@/lib/utils';
 import { useManga2Novel } from '@/hooks/use-manga2novel';
 
@@ -135,6 +137,14 @@ export default function Manga2NovelApp() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedFocus, setAdvancedFocus] = useState<'creative' | 'pipeline'>('creative');
   const [mobileWorkbench, setMobileWorkbench] = useState<MobileWorkbenchKey>('config');
+  const [theme, setTheme] = useState<PreviewTheme>(() => {
+    if (typeof document === 'undefined') {
+      return DEFAULT_PREVIEW_THEME;
+    }
+
+    const storedTheme = document.documentElement.dataset.theme;
+    return isPreviewTheme(storedTheme) ? storedTheme : DEFAULT_PREVIEW_THEME;
+  });
   const {
     apiConfig,
     apiProfiles,
@@ -264,20 +274,6 @@ export default function Manga2NovelApp() {
   const previewStatusLabel = hasPreviewContent
     ? (taskState.finalPolish.markdownBody?.trim() ? '终稿已成' : `已写 ${readySectionCount} 节`)
     : '等待成稿';
-  const workbenchStatusLabel = appStatusLabel(taskState.status);
-  const dashboardStats = [
-    { label: '工作台状态', value: workbenchStatusLabel },
-    { label: '当前阶段', value: pipelineStageLabel(taskState.currentStage) },
-    { label: '已载入画稿', value: `${images.length} 张` },
-    { label: '书稿预览', value: previewStatusLabel },
-  ];
-  const workbenchSummary = isRunning
-    ? `系统正在把这组漫画拆解成可写作的书稿，当前进行到「${pipelineStageLabel(taskState.currentStage)}」。`
-    : isPaused
-      ? '当前流程已暂停，检查进度卡片后可以继续、跳过或重试。'
-      : isCompleted
-        ? '这一轮转换已经完成，右侧可以直接通读、复制或导出结果。'
-        : '先准备接口、上传画稿，再从这里启动一次更像编辑部排版流程的转换。';
   const advancedSections = useMemo(() => {
     return {
       creative: {
@@ -365,6 +361,19 @@ export default function Manga2NovelApp() {
   const activeMobileWorkbench = mobileWorkbenchSections.some((section) => section.key === mobileWorkbench && section.available)
     ? mobileWorkbench
     : 'config';
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    document.documentElement.dataset.theme = theme;
+    try {
+      window.localStorage.setItem('m2n-preview-theme', theme);
+    } catch {
+      // Ignore storage failures and keep the in-memory theme.
+    }
+  }, [theme]);
 
   const currentFailure = useMemo(() => {
     switch (taskState.currentStage) {
@@ -755,6 +764,7 @@ export default function Manga2NovelApp() {
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <ThemeSwitcher value={theme} onChange={setTheme} />
               <Button
                 type="button"
                 size="sm"
@@ -849,80 +859,6 @@ export default function Manga2NovelApp() {
       </header>
 
       <main className="mx-auto max-w-[1600px] px-4 py-4 pb-28 lg:px-6 lg:py-6 lg:pb-8">
-        <section className="mb-6">
-          <Card className="overflow-visible border-border/70 bg-[linear-gradient(135deg,rgba(255,252,247,0.95),rgba(247,239,228,0.92))] shadow-[0_30px_80px_rgba(44,33,24,0.12)] dark:bg-[linear-gradient(135deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]">
-            <CardContent className="grid gap-4 px-4 py-4 sm:gap-6 sm:px-5 sm:py-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)] lg:px-6 lg:py-6">
-              <div className="space-y-4">
-                <div className="editorial-kicker">Preview Branch / Safe To Experiment</div>
-                <div className="space-y-3">
-                  <h2 className="max-w-4xl font-serif text-[clamp(1.6rem,1.32rem+1.4vw,3.45rem)] font-semibold leading-[1.08] tracking-[0.01em] text-foreground">
-                    把漫画分镜整理成真正可读、可导出的小说书稿。
-                  </h2>
-                  <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-[15px]">
-                    <span className="sm:hidden">预览站先行试验新的编辑部工作台，不影响正式站正在使用的用户。</span>
-                    <span className="hidden sm:inline">这一版预览站先行试验新的编辑部工作台：左侧准备接口和画稿，中段观察流程推进，右侧像校样一样实时阅读书稿，不影响正式站正在使用的用户。</span>
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-                  {dashboardStats.map((item) => (
-                    <div key={item.label} className="story-stat">
-                      <div className="story-stat-label">{item.label}</div>
-                      <div className="story-stat-value">{item.value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-[1.6rem] border border-border/70 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)] dark:bg-background/24">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="default">预览站改版中</Badge>
-                  <Badge variant="outline">{WORKFLOW_MODE_LABELS[taskState.config.workflowMode]}</Badge>
-                  <Badge variant="outline">{WRITING_MODE_LABELS[taskState.creativeSettings.writingMode]}</Badge>
-                </div>
-                <div className="mt-4 space-y-2">
-                  <div className="text-xs tracking-[0.14em] text-muted-foreground">WORKBENCH NOTE</div>
-                  <div className="font-serif text-[1.16rem] font-semibold leading-tight text-foreground sm:text-[1.35rem]">
-                    {canStart ? '已经具备开写条件。' : isRunning ? '书稿正在排版生成中。' : isCompleted ? '这一轮已经完成。' : '先把工作台准备好。'}
-                  </div>
-                  <p className="text-sm leading-7 text-muted-foreground">
-                    <span className="sm:hidden">{canStart ? '接口和素材基本就绪，可以开始本轮转换。' : workbenchSummary}</span>
-                    <span className="hidden sm:inline">{workbenchSummary}</span>
-                  </p>
-                </div>
-                <div className="mt-5 grid grid-cols-2 gap-2">
-                  <div className="rounded-2xl border border-border/70 bg-muted/38 px-3 py-3">
-                    <div className="text-[11px] tracking-[0.12em] text-muted-foreground">启动条件</div>
-                    <div className="mt-1 text-sm font-medium text-foreground">{mobileStartHint}</div>
-                  </div>
-                  <div className="rounded-2xl border border-border/70 bg-muted/38 px-3 py-3">
-                    <div className="text-[11px] tracking-[0.12em] text-muted-foreground">配置摘要</div>
-                    <div className="mt-1 text-sm font-medium text-foreground">{modeAwareAdvancedSummary.slice(0, 2).join(' · ')}</div>
-                  </div>
-                </div>
-                <div className="mt-3 flex gap-2 sm:hidden">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => setMobileWorkbench('config')}
-                  >
-                    先配接口
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setMobileWorkbench('material')}
-                  >
-                    上传画稿
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
         {recoveryNotice ? (
           <Card
             className={cn(

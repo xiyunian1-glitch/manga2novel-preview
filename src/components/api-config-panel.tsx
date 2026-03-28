@@ -485,43 +485,6 @@ export function APIConfigPanel({
     writing: groupModelsByVendor(quickRouteModels.writing),
   }), [quickRouteModels]);
 
-  const summaryItems = useMemo(() => {
-    const analysisLabel = quickRouteStates.analysis.anyEnabled
-      ? resolveProviderDisplayLabel(
-        quickRouteStates.analysis.representative.provider,
-        quickRouteStates.analysis.representative.providerLabel
-      )
-      : '跟随默认';
-    const writingLabel = quickRouteStates.writing.anyEnabled
-      ? resolveProviderDisplayLabel(
-        quickRouteStates.writing.representative.provider,
-        quickRouteStates.writing.representative.providerLabel
-      )
-      : '跟随默认';
-
-    return [
-      {
-        label: '默认接口',
-        value: providerLabel.trim() || PROVIDER_DISPLAY_NAMES[provider],
-        detail: model.trim() || '模型未设置',
-      },
-      {
-        label: '分析分流',
-        value: analysisLabel,
-        detail: quickRouteStates.analysis.mixed ? '组内已细分' : '逐页分析 / 分块综合 / 整书综合',
-      },
-      {
-        label: '写作分流',
-        value: writingLabel,
-        detail: quickRouteStates.writing.mixed ? '组内已细分' : '章节写作 / 全书润色',
-      },
-      {
-        label: '最近更新',
-        value: formatProfileUpdatedAt(activeProfile?.updatedAt),
-        detail: baseUrl.trim() || '使用预设地址',
-      },
-    ];
-  }, [activeProfile?.updatedAt, baseUrl, model, provider, providerLabel, quickRouteStates]);
   const defaultProviderDisplay = providerLabel.trim() || PROVIDER_DISPLAY_NAMES[provider];
   const routeOverviewCards = useMemo(() => {
     return [
@@ -1066,7 +1029,7 @@ export function APIConfigPanel({
                   {editorStep === 'profile' ? (
                     <>
                       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-                        <div className="rounded-[1.25rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+                        <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
                           <div className="mb-3 text-sm font-medium">步骤一：先给这套配置命名</div>
                           <div className="space-y-2">
                             <Label>配置档名称</Label>
@@ -1083,7 +1046,7 @@ export function APIConfigPanel({
                           </div>
                         </div>
 
-                        <div className="rounded-[1.25rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+                        <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
                           <div className="mb-3 text-sm font-medium">当前配置档切换</div>
                           <div className="space-y-2">
                             <Label>选择配置档</Label>
@@ -1109,19 +1072,7 @@ export function APIConfigPanel({
                       </div>
 
                       <div className="rounded-[1.25rem] border border-dashed border-border/75 bg-background/60 px-4 py-4 text-sm leading-7 text-muted-foreground">
-                        默认接口会被所有阶段沿用。只有你明确想让分析和写作走不同平台时，才需要继续到下一步配置第二套 API。
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        {summaryItems.map((item) => (
-                          <div
-                            key={`profile-${item.label}`}
-                            className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1.5 text-xs"
-                          >
-                            <span className="shrink-0 font-medium text-foreground">{item.label}</span>
-                            <span className="min-w-0 truncate text-muted-foreground" title={item.value}>{item.value}</span>
-                          </div>
-                        ))}
+                        默认接口会被所有阶段沿用。只有确定要把分析和写作拆到不同平台时，才需要继续配置第二套 API。
                       </div>
                     </>
                   ) : null}
@@ -1129,9 +1080,9 @@ export function APIConfigPanel({
                 {editorStep === 'default' ? (
                 <div className="space-y-4 rounded-2xl border bg-muted/10 p-4">
                   <div className="space-y-1">
-                    <div className="text-sm font-medium">1. 先选服务商预设</div>
+                    <div className="text-sm font-medium">先选服务商预设</div>
                     <p className="text-xs leading-5 text-muted-foreground">
-                      像 OpenAI、OpenRouter 这种会自动带出接口类型和默认 URL，你只需要补 Key、模型，保存就能开始。
+                      预设会自动带出接口类型和默认 URL；补齐 Key 和模型后就能直接开始。
                     </p>
                   </div>
 
@@ -1295,10 +1246,10 @@ export function APIConfigPanel({
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm font-medium">
                         <Waypoints className="h-4 w-4 text-muted-foreground" />
-                        步骤三：只在需要时拆成分析 / 写作两路
+                        只在需要时拆成分析 / 写作两路
                       </div>
                       <p className="text-xs leading-5 text-muted-foreground">
-                        大多数人只需要一套默认接口直接跑完全流程。只有你明确想把视觉识别和写作能力拆给不同平台时，才需要继续配置这里。
+                        大多数情况下，一套默认接口就够了；只有明确想拆给不同平台时，才需要继续配置这里。
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="outline">分析分流 {quickRouteStates.analysis.anyEnabled ? '已启用' : '未启用'}</Badge>
@@ -1535,8 +1486,8 @@ export function APIConfigPanel({
 
                 {editorStep === 'review' ? (
                   <>
-                    <div className="rounded-[1.25rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
-                      <div className="text-sm font-medium">步骤四：保存前检查</div>
+                    <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
+                      <div className="text-sm font-medium">保存前检查</div>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
                         用这一页确认默认接口、分流状态和配置档命名是否都正确。确认无误后直接保存。
                       </p>
@@ -1570,19 +1521,13 @@ export function APIConfigPanel({
                       ))}
                     </div>
 
-                    <div className="rounded-[1.25rem] border border-border/75 bg-background/58 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
-                      <div className="mb-3 text-sm font-medium">当前摘要</div>
-                      <div className="flex min-w-0 flex-wrap gap-2">
-                        {summaryItems.map((item) => (
-                          <div
-                            key={`review-${item.label}`}
-                            className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-full border bg-background/80 px-3 py-1.5 text-xs"
-                          >
-                            <span className="shrink-0 font-medium text-foreground">{item.label}</span>
-                            <span className="min-w-0 truncate text-muted-foreground" title={item.value}>{item.value}</span>
-                            <span className="hidden min-w-0 truncate text-muted-foreground/80 xl:inline" title={item.detail}>{item.detail}</span>
-                          </div>
-                        ))}
+                    <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
+                      <div className="text-sm font-medium">配置档</div>
+                      <div className="mt-2 text-sm leading-6 text-foreground/86">
+                        {profileName.trim() || activeProfile?.name || DEFAULT_PROFILE_NAME}
+                      </div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        最近更新：{formatProfileUpdatedAt(activeProfile?.updatedAt)}
                       </div>
                     </div>
                   </>
