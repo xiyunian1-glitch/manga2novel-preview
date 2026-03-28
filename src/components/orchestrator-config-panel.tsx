@@ -1,7 +1,6 @@
 'use client';
 
 import { Settings } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,28 +22,6 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
     const nextValue = Math.max(0, Math.min(500, Math.trunc(value) || 0));
     onUpdate({ splitPartCount: nextValue });
   };
-  const queueSummaryCards = [
-    {
-      label: '流程模式',
-      value: WORKFLOW_MODE_LABELS[config.workflowMode],
-      hint: isSplitDraftMode ? '跳过分块综合，直接整书写作' : '完整保留分块综合环节',
-    },
-    {
-      label: '逐页分组',
-      value: config.chunkSize === 0 ? '自动' : `${config.chunkSize} 张`,
-      hint: '建议多数视觉模型保持在 2-4 张',
-    },
-    {
-      label: '并发请求',
-      value: `${config.maxConcurrency}`,
-      hint: '过高更容易撞限流，2-4 最稳',
-    },
-    {
-      label: '终稿策略',
-      value: config.enableFinalPolish ? '写完后润色' : '写完即结束',
-      hint: config.includeSectionImages ? '章节写作会附带场景图' : '章节写作仅用文本上下文',
-    },
-  ];
 
   return (
     <Card className="workbench-panel border-border/75">
@@ -59,23 +36,8 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
             这里决定整条生产线的处理顺序、拆分方式和容错策略。把它理解成“这次书稿项目怎么排流水线”。
           </CardDescription>
         </div>
-        <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
-          {queueSummaryCards.map((card) => (
-            <div key={card.label} className="story-stat py-3">
-              <div className="story-stat-label">{card.label}</div>
-              <div className="story-stat-value text-[1.05rem]">{card.value}</div>
-              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{card.hint}</div>
-            </div>
-          ))}
-        </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="default">先定流程模式</Badge>
-          <Badge variant="outline">再定逐页分组</Badge>
-          <Badge variant="outline">最后再调并发和重试</Badge>
-        </div>
-
         <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
           <div className="space-y-1">
             <Label className="text-sm">流程模式</Label>
@@ -141,7 +103,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
                 <div className="space-y-1">
                   <Label className="text-sm">章节默认分段数（直综合写作）</Label>
                   <p className="text-xs text-muted-foreground">
-                    决定整书综合后默认拆成几部分进入章节写作。`0` 表示自动按每 10 页一章估算，默认值为 `8`。
+                    决定整书综合后默认拆成几部分进入章节写作。`0` 表示自动按每 8 页一章估算，默认值为 `8`。
                   </p>
                 </div>
                 <div className="w-24">
@@ -158,9 +120,9 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">0 = 自动（每 10 页一章）</span>
+                <span className="text-xs text-muted-foreground">0 = 自动（每 8 页一章）</span>
                 <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm">
-                  {config.splitPartCount === 0 ? '自动（每 10 页一章）' : `${config.splitPartCount} 段`}
+                  {config.splitPartCount === 0 ? '自动（每 8 页一章）' : `${config.splitPartCount} 段`}
                 </span>
               </div>
               <Slider

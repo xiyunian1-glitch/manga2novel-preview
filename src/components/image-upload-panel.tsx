@@ -193,8 +193,6 @@ export function ImageUploadPanel({
   const totalCompressedSize = useMemo(() => {
     return images.reduce((sum, image) => sum + (image.compressedSize || image.originalSize), 0);
   }, [images]);
-  const leadImage = images[0] || null;
-  const lastImage = images[images.length - 1] || null;
 
   return (
     <Card className="workbench-panel border-border/75">
@@ -231,7 +229,7 @@ export function ImageUploadPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+        <div className="space-y-4">
           <div
             className={cn(
               'rounded-[1.35rem] border-2 border-dashed p-4 transition-all cursor-pointer sm:p-6',
@@ -308,45 +306,6 @@ export function ImageUploadPanel({
             </div>
           </div>
 
-          <div className="workbench-panel-soft rounded-[1.35rem] border border-border/75 p-4">
-            <div className="text-[11px] tracking-[0.12em] text-muted-foreground">MATERIAL OVERVIEW</div>
-            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-2 xl:grid-cols-1">
-              <div className="story-stat py-3">
-                <div className="story-stat-label">总页数</div>
-                <div className="story-stat-value text-[1.35rem]">{images.length || '0'}</div>
-              </div>
-              <div className="story-stat py-3">
-                <div className="story-stat-label">已就绪页</div>
-                <div className="story-stat-value text-[1.35rem]">{readyCount}</div>
-              </div>
-              <div className="story-stat py-3">
-                <div className="story-stat-label">处理中</div>
-                <div className="story-stat-value text-[1.35rem]">{processingCount}</div>
-              </div>
-              <div className="story-stat py-3">
-                <div className="story-stat-label">素材体积</div>
-                <div className="story-stat-value text-[1.1rem]">{images.length > 0 ? formatSize(totalOriginalSize) : '--'}</div>
-                <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                  {images.length > 0 ? formatSavedRatio(totalOriginalSize, totalCompressedSize) : '上传后会在这里显示体积信息'}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-[1.1rem] border border-border/70 bg-muted/30 px-4 py-3">
-              <div className="text-[11px] tracking-[0.12em] text-muted-foreground">页序锚点</div>
-              {leadImage ? (
-                <div className="mt-2 space-y-2 text-sm leading-6 text-foreground/90">
-                  <div>起始页：{getFilePath(leadImage.file)}</div>
-                  <div>末尾页：{lastImage ? getFilePath(lastImage.file) : getFilePath(leadImage.file)}</div>
-                </div>
-              ) : (
-                <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                  还没有素材。建议整话一次性上传，这样后续章节节奏会更稳定。
-                </div>
-              )}
-            </div>
-          </div>
-
           <input
             ref={fileInputRef}
             type="file"
@@ -366,6 +325,20 @@ export function ImageUploadPanel({
             disabled={disabled}
             data-input="folder-upload"
           />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">总页数 {images.length}</Badge>
+          <Badge variant="outline">已就绪 {readyCount}</Badge>
+          {processingCount > 0 ? <Badge variant="outline">处理中 {processingCount}</Badge> : null}
+          <Badge variant="outline">
+            素材体积 {images.length > 0 ? formatSize(totalOriginalSize) : '--'}
+          </Badge>
+          {images.length > 0 ? (
+            <Badge variant="outline" className="hidden xl:inline-flex">
+              {formatSavedRatio(totalOriginalSize, totalCompressedSize)}
+            </Badge>
+          ) : null}
         </div>
 
         {images.length > 0 && (

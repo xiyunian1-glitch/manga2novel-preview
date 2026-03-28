@@ -206,53 +206,6 @@ export default function Manga2NovelApp() {
     return creativePresets.find((preset) => preset.id === taskState.creativeSettings.presetId)?.name || '自定义';
   }, [creativePresets, taskState.creativeSettings.presetId]);
   const currentPresetDisplayName = currentPresetName.startsWith('鑷') ? '自定义' : currentPresetName;
-  const legacyAdvancedSummary = useMemo(() => {
-    return [
-      `风格：${currentPresetName}`,
-      `写作模式：${taskState.creativeSettings.writingMode === 'faithful' ? '忠实转写' : '文学改写'}`,
-      `逐页分析：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`,
-      `分块综合：${taskState.config.synthesisChunkCount} 块`,
-      `全书润色：${taskState.config.enableFinalPolish ? '开' : '关'}`,
-      `自动跳过：${taskState.config.autoSkipOnError ? '开' : '关'}`,
-    ];
-  }, [
-    currentPresetName,
-    taskState.config.autoSkipOnError,
-    taskState.config.chunkSize,
-    taskState.config.enableFinalPolish,
-    taskState.config.synthesisChunkCount,
-    taskState.creativeSettings.writingMode,
-  ]);
-  void legacyAdvancedSummary;
-  const modeAwareAdvancedSummary = useMemo(() => {
-    const workflowModeLabel = WORKFLOW_MODE_LABELS[taskState.config.workflowMode];
-    const writingModeLabel = WRITING_MODE_LABELS[taskState.creativeSettings.writingMode];
-    const workflowSummary = taskState.config.workflowMode === 'split-draft'
-      ? `逐页分组：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`
-      : `逐页分组：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`;
-    const synthesisSummary = taskState.config.workflowMode === 'split-draft'
-      ? `章节分段：${taskState.config.splitPartCount === 0 ? '自动（每 10 页一章）' : `${taskState.config.splitPartCount} 段`}`
-      : `分块综合：${taskState.config.synthesisChunkCount} 段`;
-
-    return [
-      `风格：${currentPresetDisplayName}`,
-      `写作模式：${writingModeLabel}`,
-      `流程模式：${workflowModeLabel}`,
-      workflowSummary,
-      synthesisSummary,
-      `全书润色：${taskState.config.enableFinalPolish ? '开' : '关'}`,
-      `自动跳过：${taskState.config.autoSkipOnError ? '开' : '关'}`,
-    ];
-  }, [
-    currentPresetDisplayName,
-    taskState.config.autoSkipOnError,
-    taskState.config.chunkSize,
-    taskState.config.enableFinalPolish,
-    taskState.config.splitPartCount,
-    taskState.config.synthesisChunkCount,
-    taskState.config.workflowMode,
-    taskState.creativeSettings.writingMode,
-  ]);
   const mobileStartHint = useMemo(() => {
     if (!hasApiKey) {
       return '还差：补全 API 配置';
@@ -718,7 +671,6 @@ export default function Manga2NovelApp() {
           disabled={isRunning}
         />
       )}
-      modeAwareAdvancedSummary={modeAwareAdvancedSummary}
       onFocusChange={(key) => {
         setAdvancedFocus(key);
         setAdvancedOpen(true);

@@ -2044,7 +2044,7 @@ function getAutoSplitDraftPartCount(imageCount: number): number {
     return 1;
   }
 
-  return Math.min(500, Math.max(1, Math.ceil(imageCount / 10)));
+  return Math.min(500, Math.max(1, Math.ceil(imageCount / 8)));
 }
 
 function getAutoSectionWritingImageLimit(

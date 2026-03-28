@@ -17,7 +17,6 @@ export interface AdvancedSettingsSection {
 
 interface AdvancedSettingsDeckProps {
   creativePanel: ReactNode;
-  modeAwareAdvancedSummary: string[];
   onFocusChange: (key: 'creative' | 'pipeline') => void;
   onToggleOpen: () => void;
   open: boolean;
@@ -28,7 +27,6 @@ interface AdvancedSettingsDeckProps {
 
 export function AdvancedSettingsDeck({
   creativePanel,
-  modeAwareAdvancedSummary,
   onFocusChange,
   onToggleOpen,
   open,
@@ -97,35 +95,10 @@ export function AdvancedSettingsDeck({
           })}
         </div>
 
-        <div className="flex flex-wrap gap-2 pt-1">
-          {modeAwareAdvancedSummary.map((item) => (
-            <Badge key={item} variant="outline">{item}</Badge>
-          ))}
-        </div>
       </CardHeader>
 
       {open ? (
-        <CardContent className="space-y-4 border-t border-border/70 bg-background/24 pt-5">
-          <div className="space-y-1">
-            <div className="text-[11px] tracking-[0.12em] text-muted-foreground">
-              {sections[selectedKey].kicker}
-            </div>
-            <div className="font-serif text-[1.15rem] font-semibold text-foreground">
-              {sections[selectedKey].title}
-            </div>
-            <div className="text-sm leading-6 text-muted-foreground">
-              {sections[selectedKey].description}
-            </div>
-          </div>
-
-          <div className="workbench-panel-soft rounded-[1.1rem] border border-border/70 px-4 py-3">
-            <div className="flex flex-wrap gap-2">
-              {sections[selectedKey].summary.map((item) => (
-                <Badge key={item} variant="outline">{item}</Badge>
-              ))}
-            </div>
-          </div>
-
+        <CardContent className="border-t border-border/70 bg-background/24 pt-5">
           {selectedKey === 'creative' ? creativePanel : pipelinePanel}
         </CardContent>
       ) : null}
