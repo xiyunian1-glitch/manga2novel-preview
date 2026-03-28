@@ -132,6 +132,7 @@ function formatRequestImageSummary(request?: LastAIRequest): string {
 export default function Manga2NovelApp() {
   const [lastRequestOpen, setLastRequestOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedFocus, setAdvancedFocus] = useState<'creative' | 'pipeline'>('creative');
   const {
     apiConfig,
     apiProfiles,
@@ -275,6 +276,40 @@ export default function Manga2NovelApp() {
       : isCompleted
         ? '这一轮转换已经完成，右侧可以直接通读、复制或导出结果。'
         : '先准备接口、上传画稿，再从这里启动一次更像编辑部排版流程的转换。';
+  const advancedSections = useMemo(() => {
+    return {
+      creative: {
+        key: 'creative' as const,
+        kicker: 'Writing Direction',
+        title: '写作指令面板',
+        description: '控制预设、写作模式、语气浓度和提示词层次，决定最后成稿像什么。',
+        summary: [
+          `当前预设：${currentPresetDisplayName}`,
+          `写作模式：${WRITING_MODE_LABELS[taskState.creativeSettings.writingMode]}`,
+          `Temperature：${taskState.creativeSettings.temperature.toFixed(2)}`,
+        ],
+      },
+      pipeline: {
+        key: 'pipeline' as const,
+        kicker: 'Queue Design',
+        title: '流水线参数面板',
+        description: '控制流程模式、拆分策略、并发和重试，让整条转换流水线更稳。',
+        summary: [
+          `流程模式：${WORKFLOW_MODE_LABELS[taskState.config.workflowMode]}`,
+          `逐页分组：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`,
+          `重试 / 并发：${taskState.config.maxRetries} 次 / ${taskState.config.maxConcurrency} 并发`,
+        ],
+      },
+    };
+  }, [
+    currentPresetDisplayName,
+    taskState.config.chunkSize,
+    taskState.config.maxConcurrency,
+    taskState.config.maxRetries,
+    taskState.config.workflowMode,
+    taskState.creativeSettings.temperature,
+    taskState.creativeSettings.writingMode,
+  ]);
 
   const currentFailure = useMemo(() => {
     switch (taskState.currentStage) {
@@ -802,22 +837,24 @@ export default function Manga2NovelApp() {
               </div>
             </div>
             <div className="editorial-kicker">Prompt & Queue Tuning</div>
-            <Card className="border-dashed bg-muted/5">
-              <CardHeader className="pb-3">
+            <Card className="overflow-hidden border-border/75 bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(248,242,233,0.82))] shadow-[0_20px_48px_rgba(44,33,24,0.08)] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]">
+              <CardHeader className="space-y-4 pb-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                  <div className="space-y-2">
+                    <div className="editorial-kicker">Advanced Direction Deck</div>
+                    <CardTitle className="flex flex-wrap items-center gap-2 font-serif text-lg">
                       <Settings2 className="h-4 w-4" />
                       高级设置
                     </CardTitle>
-                    <CardDescription>
-                      这里收纳 Prompt 和队列参数；调试与容错已经移回上方，方便随时查看。
+                    <CardDescription className="max-w-2xl text-[13px] leading-6 text-muted-foreground/90">
+                      这里不再堆成一整块大表单，而是拆成两条独立编辑线：一条决定成稿的语言气质，一条决定整条流水线的运行方式。
                     </CardDescription>
                   </div>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
+                    className="self-start bg-background/72"
                     onClick={() => setAdvancedOpen((prev) => !prev)}
                     data-action="toggle-advanced-settings"
                   >
@@ -825,6 +862,44 @@ export default function Manga2NovelApp() {
                     {advancedOpen ? '收起高级设置' : '展开高级设置'}
                   </Button>
                 </div>
+
+                <div className="grid gap-3 xl:grid-cols-2">
+                  {Object.values(advancedSections).map((section) => {
+                    const isActive = advancedFocus === section.key;
+
+                    return (
+                      <button
+                        key={section.key}
+                        type="button"
+                        className={cn(
+                          'rounded-[1.25rem] border px-4 py-4 text-left transition',
+                          isActive
+                            ? 'border-primary/25 bg-primary/7 shadow-[0_18px_40px_rgba(37,71,184,0.1)]'
+                            : 'border-border/75 bg-background/58 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-background/72'
+                        )}
+                        onClick={() => {
+                          setAdvancedFocus(section.key);
+                          setAdvancedOpen(true);
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{section.kicker}</div>
+                            <div className="mt-1 font-serif text-[1.08rem] font-semibold text-foreground">{section.title}</div>
+                          </div>
+                          <Badge variant={isActive ? 'default' : 'outline'}>{isActive ? '当前焦点' : '切换查看'}</Badge>
+                        </div>
+                        <p className="mt-3 text-sm leading-7 text-muted-foreground">{section.description}</p>
+                        <div className="mt-4 space-y-1.5">
+                          {section.summary.map((item) => (
+                            <div key={item} className="text-xs leading-5 text-foreground/84">{item}</div>
+                          ))}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 <div className="flex flex-wrap gap-2 pt-1">
                   {modeAwareAdvancedSummary.map((item) => (
                     <Badge key={item} variant="outline">{item}</Badge>
@@ -833,8 +908,48 @@ export default function Manga2NovelApp() {
               </CardHeader>
 
               {advancedOpen ? (
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.02fr)_minmax(0,0.98fr)]">
+                <CardContent className="space-y-4 border-t border-border/70 bg-background/24 pt-5">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="space-y-1">
+                      <div className="text-[11px] tracking-[0.12em] text-muted-foreground">
+                        {advancedSections[advancedFocus].kicker}
+                      </div>
+                      <div className="font-serif text-[1.15rem] font-semibold text-foreground">
+                        {advancedSections[advancedFocus].title}
+                      </div>
+                      <div className="text-sm leading-6 text-muted-foreground">
+                        {advancedSections[advancedFocus].description}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={advancedFocus === 'creative' ? 'default' : 'outline'}
+                        onClick={() => setAdvancedFocus('creative')}
+                      >
+                        写作指令
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={advancedFocus === 'pipeline' ? 'default' : 'outline'}
+                        onClick={() => setAdvancedFocus('pipeline')}
+                      >
+                        流水线参数
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.1rem] border border-border/70 bg-background/60 px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      {advancedSections[advancedFocus].summary.map((item) => (
+                        <Badge key={item} variant="outline">{item}</Badge>
+                      ))}
+                    </div>
+                  </div>
+
+                  {advancedFocus === 'creative' ? (
                     <CreativeSettingsPanel
                       settings={taskState.creativeSettings}
                       presets={creativePresets}
@@ -844,15 +959,13 @@ export default function Manga2NovelApp() {
                       onDeletePreset={deleteCreativePreset}
                       disabled={isRunning}
                     />
-
-                    <div className="space-y-4">
-                      <OrchestratorConfigPanel
-                        config={taskState.config}
-                        onUpdate={saveOrchestratorConfig}
-                        disabled={isRunning}
-                      />
-                    </div>
-                  </div>
+                  ) : (
+                    <OrchestratorConfigPanel
+                      config={taskState.config}
+                      onUpdate={saveOrchestratorConfig}
+                      disabled={isRunning}
+                    />
+                  )}
                 </CardContent>
               ) : null}
             </Card>
