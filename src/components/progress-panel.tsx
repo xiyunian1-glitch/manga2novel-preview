@@ -943,7 +943,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
             </span>
             <span>{completedUnits} / {totalUnits || 0}</span>
           </div>
-          <Progress value={progress} />
+          <Progress value={progress} aria-label={`整体处理进度 ${Math.round(progress)}%`} />
         </div>
         <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
           {overviewCards.map((card) => (
@@ -1161,7 +1161,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
             <>
               <DialogHeader>
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" onClick={() => setSelectedItem(null)}>
+                  <Button variant="ghost" size="icon" aria-label="关闭详情并返回列表" onClick={() => setSelectedItem(null)}>
                     <ArrowLeft className="h-4 w-4" />
                   </Button>
                   <div>

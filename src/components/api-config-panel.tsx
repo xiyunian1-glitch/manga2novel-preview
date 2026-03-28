@@ -1226,6 +1226,8 @@ export function APIConfigPanel({
                           type="button"
                           className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                           onClick={() => setShowKey((prev) => !prev)}
+                          aria-label={showKey ? '隐藏默认接口 API Key' : '显示默认接口 API Key'}
+                          title={showKey ? '隐藏默认接口 API Key' : '显示默认接口 API Key'}
                           data-action="toggle-default-api-key-visibility"
                         >
                           {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -1538,6 +1540,8 @@ export function APIConfigPanel({
                                         type="button"
                                         className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                                         onClick={() => setShowQuickRouteKeys((prev) => ({ ...prev, [group.id]: !prev[group.id] }))}
+                                        aria-label={showQuickRouteKeys[group.id] ? `隐藏${group.label} API Key` : `显示${group.label} API Key`}
+                                        title={showQuickRouteKeys[group.id] ? `隐藏${group.label} API Key` : `显示${group.label} API Key`}
                                         data-action="toggle-quick-route-api-key-visibility"
                                         data-route-id={group.id}
                                       >

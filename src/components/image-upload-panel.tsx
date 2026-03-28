@@ -479,6 +479,8 @@ export function ImageUploadPanel({
                         size="sm"
                         className="h-8 w-8 p-0 opacity-70 hover:opacity-100"
                         onClick={() => onRemove(img.id)}
+                        aria-label={`删除第 ${index + 1} 页图片`}
+                        title={`删除第 ${index + 1} 页图片`}
                         disabled={disabled}
                       >
                         <X className="h-3.5 w-3.5" />

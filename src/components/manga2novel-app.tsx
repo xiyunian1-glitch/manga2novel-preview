@@ -3,26 +3,25 @@
 import { useMemo, useState } from 'react';
 import {
   BookOpenText,
-  ChevronDown,
-  ChevronUp,
   Pause,
   Play,
   RefreshCw,
   RotateCcw,
   Send,
-  Settings2,
   SkipForward,
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
+import { AdvancedSettingsDeck } from '@/components/advanced-settings-deck';
 import { APIConfigPanel } from '@/components/api-config-panel';
 import { CreativeSettingsPanel } from '@/components/creative-settings-panel';
 import { ImageUploadPanel } from '@/components/image-upload-panel';
+import { MobileWorkbenchSwitcher } from '@/components/mobile-workbench-switcher';
 import { NovelPreview } from '@/components/novel-preview';
 import { OrchestratorConfigPanel } from '@/components/orchestrator-config-panel';
 import { ProgressPanel } from '@/components/progress-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -698,138 +697,35 @@ export default function Manga2NovelApp() {
   );
 
   const advancedPanel = (
-    <Card className="overflow-hidden border-border/75 bg-[linear-gradient(180deg,rgba(255,252,247,0.92),rgba(248,242,233,0.82))] shadow-[0_20px_48px_rgba(44,33,24,0.08)] dark:bg-[linear-gradient(180deg,rgba(24,22,19,0.96),rgba(19,18,16,0.92))]">
-      <CardHeader className="space-y-4 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2">
-            <div className="editorial-kicker">Advanced Direction Deck</div>
-            <CardTitle className="flex flex-wrap items-center gap-2 font-serif text-lg">
-              <Settings2 className="h-4 w-4" />
-              高级设置
-            </CardTitle>
-            <CardDescription className="max-w-2xl text-[13px] leading-6 text-muted-foreground/90">
-              这里不再堆成一整块大表单，而是拆成两条独立编辑线：一条决定成稿的语言气质，一条决定整条流水线的运行方式。
-            </CardDescription>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="self-start bg-background/72"
-            onClick={() => setAdvancedOpen((prev) => !prev)}
-            data-action="toggle-advanced-settings"
-          >
-            {advancedOpen ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
-            {advancedOpen ? '收起高级设置' : '展开高级设置'}
-          </Button>
-        </div>
-
-        <div className="grid gap-3 xl:grid-cols-2">
-          {Object.values(advancedSections).map((section) => {
-            const isActive = advancedFocus === section.key;
-
-            return (
-              <button
-                key={section.key}
-                type="button"
-                className={cn(
-                  'rounded-[1.25rem] border px-4 py-4 text-left transition',
-                  isActive
-                    ? 'border-primary/25 bg-primary/7 shadow-[0_18px_40px_rgba(37,71,184,0.1)]'
-                    : 'border-border/75 bg-background/58 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-background/72'
-                )}
-                onClick={() => {
-                  setAdvancedFocus(section.key);
-                  setAdvancedOpen(true);
-                }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{section.kicker}</div>
-                    <div className="mt-1 font-serif text-[1.08rem] font-semibold text-foreground">{section.title}</div>
-                  </div>
-                  <Badge variant={isActive ? 'default' : 'outline'}>{isActive ? '当前焦点' : '切换查看'}</Badge>
-                </div>
-                <p className="mt-3 text-sm leading-7 text-muted-foreground">{section.description}</p>
-                <div className="mt-4 space-y-1.5">
-                  {section.summary.map((item) => (
-                    <div key={item} className="text-xs leading-5 text-foreground/84">{item}</div>
-                  ))}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-1">
-          {modeAwareAdvancedSummary.map((item) => (
-            <Badge key={item} variant="outline">{item}</Badge>
-          ))}
-        </div>
-      </CardHeader>
-
-      {advancedOpen ? (
-        <CardContent className="space-y-4 border-t border-border/70 bg-background/24 pt-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-1">
-              <div className="text-[11px] tracking-[0.12em] text-muted-foreground">
-                {advancedSections[advancedFocus].kicker}
-              </div>
-              <div className="font-serif text-[1.15rem] font-semibold text-foreground">
-                {advancedSections[advancedFocus].title}
-              </div>
-              <div className="text-sm leading-6 text-muted-foreground">
-                {advancedSections[advancedFocus].description}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={advancedFocus === 'creative' ? 'default' : 'outline'}
-                onClick={() => setAdvancedFocus('creative')}
-              >
-                写作指令
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={advancedFocus === 'pipeline' ? 'default' : 'outline'}
-                onClick={() => setAdvancedFocus('pipeline')}
-              >
-                流水线参数
-              </Button>
-            </div>
-          </div>
-
-          <div className="rounded-[1.1rem] border border-border/70 bg-background/60 px-4 py-3">
-            <div className="flex flex-wrap gap-2">
-              {advancedSections[advancedFocus].summary.map((item) => (
-                <Badge key={item} variant="outline">{item}</Badge>
-              ))}
-            </div>
-          </div>
-
-          {advancedFocus === 'creative' ? (
-            <CreativeSettingsPanel
-              settings={taskState.creativeSettings}
-              presets={creativePresets}
-              onUpdate={updateCreativeSettings}
-              onApplyPreset={applyCreativePreset}
-              onSavePreset={saveCreativePreset}
-              onDeletePreset={deleteCreativePreset}
-              disabled={isRunning}
-            />
-          ) : (
-            <OrchestratorConfigPanel
-              config={taskState.config}
-              onUpdate={saveOrchestratorConfig}
-              disabled={isRunning}
-            />
-          )}
-        </CardContent>
-      ) : null}
-    </Card>
+    <AdvancedSettingsDeck
+      creativePanel={(
+        <CreativeSettingsPanel
+          settings={taskState.creativeSettings}
+          presets={creativePresets}
+          onUpdate={updateCreativeSettings}
+          onApplyPreset={applyCreativePreset}
+          onSavePreset={saveCreativePreset}
+          onDeletePreset={deleteCreativePreset}
+          disabled={isRunning}
+        />
+      )}
+      modeAwareAdvancedSummary={modeAwareAdvancedSummary}
+      onFocusChange={(key) => {
+        setAdvancedFocus(key);
+        setAdvancedOpen(true);
+      }}
+      onToggleOpen={() => setAdvancedOpen((prev) => !prev)}
+      open={advancedOpen}
+      pipelinePanel={(
+        <OrchestratorConfigPanel
+          config={taskState.config}
+          onUpdate={saveOrchestratorConfig}
+          disabled={isRunning}
+        />
+      )}
+      sections={advancedSections}
+      selectedKey={advancedFocus}
+    />
   );
 
   const previewPanel = hasPreviewContent ? (
@@ -1064,97 +960,11 @@ export default function Manga2NovelApp() {
         ) : null}
 
         <section className="mb-5 lg:hidden">
-          <Card className="border-border/75 bg-background/72 shadow-[0_18px_40px_rgba(44,33,24,0.08)]">
-            <CardContent className="space-y-3 px-4 py-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[11px] tracking-[0.12em] text-muted-foreground">MOBILE WORKBENCH</div>
-                  <div className="mt-1 font-serif text-[1.08rem] font-semibold text-foreground">
-                    {mobileWorkbenchSections.find((section) => section.key === activeMobileWorkbench)?.title}
-                  </div>
-                </div>
-                <Badge variant="outline" className="hidden min-[420px]:inline-flex">按区域切换</Badge>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 sm:hidden">
-                {mobileWorkbenchSections.filter((section) => section.available || section.key !== 'preview').slice(0, 4).map((section) => {
-                  const isActive = activeMobileWorkbench === section.key;
-
-                  return (
-                    <button
-                      key={`compact-${section.key}`}
-                      type="button"
-                      className={cn(
-                        'rounded-[0.95rem] border px-3 py-2.5 text-left transition',
-                        isActive
-                          ? 'border-primary/25 bg-primary/7 shadow-[0_14px_32px_rgba(37,71,184,0.1)]'
-                          : 'border-border/75 bg-background/72',
-                        !section.available && 'opacity-45'
-                      )}
-                      onClick={() => {
-                        if (!section.available) {
-                          return;
-                        }
-                        setMobileWorkbench(section.key);
-                      }}
-                      disabled={!section.available}
-                    >
-                      <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{section.label}</div>
-                      <div className="mt-1 text-sm font-medium text-foreground">{section.title}</div>
-                    </button>
-                  );
-                })}
-                {hasPreviewContent ? (
-                  <button
-                    type="button"
-                    className={cn(
-                      'col-span-2 rounded-[0.95rem] border px-3 py-2.5 text-left transition',
-                      activeMobileWorkbench === 'preview'
-                        ? 'border-primary/25 bg-primary/7 shadow-[0_14px_32px_rgba(37,71,184,0.1)]'
-                        : 'border-border/75 bg-background/72'
-                    )}
-                    onClick={() => setMobileWorkbench('preview')}
-                  >
-                    <div className="text-[11px] tracking-[0.12em] text-muted-foreground">书稿</div>
-                    <div className="mt-1 text-sm font-medium text-foreground">预览台</div>
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="hidden gap-2 overflow-x-auto pb-1 sm:flex">
-                {mobileWorkbenchSections.map((section) => {
-                  const isActive = activeMobileWorkbench === section.key;
-
-                  return (
-                    <button
-                      key={section.key}
-                      type="button"
-                      className={cn(
-                        'min-w-[132px] rounded-[1rem] border px-3 py-3 text-left transition',
-                        isActive
-                          ? 'border-primary/25 bg-primary/7 shadow-[0_14px_32px_rgba(37,71,184,0.1)]'
-                          : 'border-border/75 bg-background/72',
-                        !section.available && 'opacity-45'
-                      )}
-                      onClick={() => {
-                        if (!section.available) {
-                          return;
-                        }
-                        setMobileWorkbench(section.key);
-                      }}
-                      disabled={!section.available}
-                      data-action="switch-mobile-workbench"
-                      data-workbench={section.key}
-                    >
-                      <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{section.label}</div>
-                      <div className="mt-1 text-sm font-medium text-foreground">{section.title}</div>
-                      <div className="mt-2 text-xs leading-5 text-muted-foreground">{section.summary}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
+          <MobileWorkbenchSwitcher
+            activeKey={activeMobileWorkbench}
+            onSelect={setMobileWorkbench}
+            sections={mobileWorkbenchSections}
+          />
         </section>
 
         <div className="space-y-5 lg:hidden">
