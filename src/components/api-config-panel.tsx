@@ -914,21 +914,15 @@ export function APIConfigPanel({
               <Shield className="mr-1 h-3 w-3" />
               AES-GCM 加密存储
             </Badge>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
-              onClick={() => openEditorAtStep('profile')}
-              data-action="open-api-config-editor"
-            >
-              编辑配置
-            </Button>
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <div className="rounded-[1rem] border border-dashed border-border/70 bg-background/50 px-3.5 py-2.5 text-xs leading-5 text-muted-foreground">
+          直接点击下方卡片即可进入对应步骤；大多数情况下只需要先补齐默认接口。
+        </div>
+
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {routeOverviewCards.map((card) => (
             <button
@@ -956,13 +950,11 @@ export function APIConfigPanel({
                   {card.badge}
                 </Badge>
               </div>
-              <div className="mt-3 text-xs leading-5 text-muted-foreground">
-                <span className="sm:hidden">{card.badge}</span>
-                <span className="hidden sm:inline">{card.description}</span>
-              </div>
-              <div className="mt-3 rounded-2xl border border-border/60 bg-background/70 px-3 py-2.5">
-                <div className="text-xs font-medium text-foreground">{card.detail}</div>
-                <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.extra}</div>
+              <div className="mt-3 text-xs leading-5 text-muted-foreground">{card.description}</div>
+              <div className="mt-2 text-xs font-medium text-foreground/88">{card.detail}</div>
+              <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground xl:block">{card.extra}</div>
+              <div className="mt-3 text-[11px] tracking-[0.12em] text-primary/80">
+                点击编辑
               </div>
             </button>
           ))}
@@ -991,53 +983,17 @@ export function APIConfigPanel({
               </p>
             </div>
 
-            <div className="grid min-w-0 gap-2 sm:flex sm:flex-wrap">
-              {summaryItems.map((item) => (
-                <div
-                  key={item.label}
-                  className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-full border bg-background/80 px-3 py-1.5 text-xs"
-                >
-                  <span className="shrink-0 font-medium text-foreground">{item.label}</span>
-                  <span className="min-w-0 truncate text-muted-foreground" title={item.value}>
-                    {item.value}
-                  </span>
-                  <span className="hidden min-w-0 truncate text-muted-foreground/80 xl:inline" title={item.detail}>
-                    {item.detail}
-                  </span>
-                </div>
-              ))}
+            <div className="rounded-[1rem] border border-border/70 bg-background/72 px-4 py-3 text-sm leading-6 text-foreground/86">
+              <div className="text-[11px] tracking-[0.12em] text-muted-foreground">当前摘要</div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                <span>默认接口：{defaultProviderDisplay}</span>
+                <span>分析分流：{quickRouteStates.analysis.anyEnabled ? '已启用' : '跟随默认'}</span>
+                <span>写作分流：{quickRouteStates.writing.anyEnabled ? '已启用' : '跟随默认'}</span>
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                最近更新：{activeProfile?.updatedAt ? new Date(activeProfile.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '暂无'}
+              </div>
             </div>
-          </div>
-
-          <div className="mt-3 rounded-[1.1rem] border border-dashed border-border/70 bg-background/65 px-4 py-3">
-            <div className="text-[11px] tracking-[0.12em] text-muted-foreground">RECOMMENDED FLOW</div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs leading-5 text-foreground/88">
-              <span className="sm:hidden">预设 → Key → 模型 → 按需分流</span>
-              <>
-                <span className="hidden sm:inline">1. 选服务商预设</span>
-                <span className="hidden text-muted-foreground sm:inline">→</span>
-                <span className="hidden sm:inline">2. 填 API Key</span>
-                <span className="hidden text-muted-foreground sm:inline">→</span>
-                <span className="hidden sm:inline">3. 选模型并保存</span>
-                <span className="hidden text-muted-foreground sm:inline">→</span>
-                <span className="hidden sm:inline">4. 只有需要双路接口时再开分流</span>
-              </>
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Badge variant="outline" className={cn(!apiKey.trim() && 'border-amber-300 text-amber-700')}>
-              {apiKey.trim() ? '默认 Key 已配置' : '默认 Key 未配置'}
-            </Badge>
-            <Badge variant="outline">
-              {model.trim() ? `默认模型：${model.trim()}` : '默认模型未设置'}
-            </Badge>
-            <Badge variant="outline">
-              分析分流 {quickRouteStates.analysis.anyEnabled ? '已启用' : '未启用'}
-            </Badge>
-            <Badge variant="outline">
-              写作分流 {quickRouteStates.writing.anyEnabled ? '已启用' : '未启用'}
-            </Badge>
           </div>
         </div>
 
