@@ -82,7 +82,7 @@ export function AdvancedSettingsDeck({
                   'surface-interactive-card cursor-pointer rounded-[1.25rem] px-4 py-4 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
                   isActive
                     ? 'surface-interactive-card-active border-primary/38 bg-primary/12'
-                    : 'border-border/80 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_38px_var(--panel-shadow)]'
+                    : 'border-border/80 hover:-translate-y-1.5 hover:border-primary/45 hover:bg-primary/5 hover:ring-1 hover:ring-primary/16 hover:shadow-[0_26px_52px_var(--panel-shadow-strong)]'
                 )}
                 onClick={() => onFocusChange(section.key)}
               >

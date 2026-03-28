@@ -59,7 +59,7 @@ export function MobileWorkbenchSwitcher({
                   'surface-interactive-card cursor-pointer rounded-[0.95rem] px-3 py-2.5 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
                   isActive
                     ? 'surface-interactive-card-active border-primary/38 bg-primary/12'
-                    : 'border-border/80 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_34px_var(--panel-shadow)]',
+                    : 'border-border/80 hover:-translate-y-1.5 hover:border-primary/45 hover:bg-primary/5 hover:ring-1 hover:ring-primary/16 hover:shadow-[0_24px_48px_var(--panel-shadow-strong)]',
                   !section.available && 'opacity-45'
                 )}
                 onClick={() => {
@@ -87,7 +87,7 @@ export function MobileWorkbenchSwitcher({
                 'surface-interactive-card col-span-2 cursor-pointer rounded-[0.95rem] px-3 py-2.5 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
                 activeKey === 'preview'
                   ? 'surface-interactive-card-active border-primary/38 bg-primary/12'
-                  : 'border-border/80 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_34px_var(--panel-shadow)]'
+                  : 'border-border/80 hover:-translate-y-1.5 hover:border-primary/45 hover:bg-primary/5 hover:ring-1 hover:ring-primary/16 hover:shadow-[0_24px_48px_var(--panel-shadow-strong)]'
               )}
               onClick={() => onSelect('preview')}
             >
@@ -114,7 +114,7 @@ export function MobileWorkbenchSwitcher({
                   'surface-interactive-card min-w-[132px] cursor-pointer rounded-[1rem] px-3 py-3 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
                   isActive
                     ? 'surface-interactive-card-active border-primary/38 bg-primary/12'
-                    : 'border-border/80 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_34px_var(--panel-shadow)]',
+                    : 'border-border/80 hover:-translate-y-1.5 hover:border-primary/45 hover:bg-primary/5 hover:ring-1 hover:ring-primary/16 hover:shadow-[0_24px_48px_var(--panel-shadow-strong)]',
                   !section.available && 'opacity-45'
                 )}
                 onClick={() => {

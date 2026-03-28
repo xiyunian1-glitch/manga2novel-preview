@@ -897,7 +897,7 @@ export function APIConfigPanel({
               key={card.key}
               type="button"
               className={cn(
-                'surface-interactive-card cursor-pointer rounded-[1.2rem] px-3.5 py-3.5 text-left transition hover:-translate-y-1 hover:border-primary/35 hover:shadow-[0_22px_48px_var(--panel-shadow)] focus-visible:ring-2 focus-visible:ring-primary/20 sm:px-4 sm:py-4',
+                'surface-interactive-card cursor-pointer rounded-[1.2rem] px-3.5 py-3.5 text-left transition hover:-translate-y-1.5 hover:border-primary/45 hover:bg-primary/5 hover:ring-1 hover:ring-primary/16 hover:shadow-[0_26px_54px_var(--panel-shadow-strong)] focus-visible:ring-2 focus-visible:ring-primary/20 sm:px-4 sm:py-4',
                 card.tone === 'ready' && 'surface-interactive-card-active border-primary/28 bg-primary/8',
                 card.tone === 'pending' && 'surface-interactive-card-active status-surface-pending',
                 card.tone === 'active' && 'surface-interactive-card-active border-primary/24 bg-background/78',
@@ -979,7 +979,7 @@ export function APIConfigPanel({
                           'surface-interactive-card w-full cursor-pointer rounded-[1.1rem] px-3 py-3 text-left transition sm:px-4',
                           isActive
                             ? 'surface-interactive-card-active border-primary/38 bg-primary/12'
-                            : 'border-border/80 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_36px_var(--panel-shadow)]'
+                            : 'border-border/80 hover:-translate-y-1.5 hover:border-primary/45 hover:bg-primary/5 hover:ring-1 hover:ring-primary/16 hover:shadow-[0_24px_48px_var(--panel-shadow-strong)]'
                         )}
                         onClick={() => setEditorStep(step.id)}
                         data-action="switch-api-editor-step"

@@ -984,7 +984,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
               className={`surface-interactive-card cursor-pointer rounded-[1.15rem] px-3 py-3 text-left transition ${
                 displayStage === card.stage
                   ? 'surface-interactive-card-active border-primary/45 bg-primary/14'
-                  : 'border-border/85 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-primary/4 hover:shadow-[0_18px_36px_var(--panel-shadow)]'
+                  : 'border-border/85 hover:-translate-y-1.5 hover:border-primary/45 hover:bg-primary/5 hover:ring-1 hover:ring-primary/16 hover:shadow-[0_26px_52px_var(--panel-shadow-strong)]'
               }`}
               onClick={() => setSelectedStage(card.stage)}
             >
