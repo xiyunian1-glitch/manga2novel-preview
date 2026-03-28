@@ -33,7 +33,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
             队列配置
           </CardTitle>
           <CardDescription className="max-w-2xl text-[13px] leading-6 text-muted-foreground/90">
-            这里决定整条生产线的处理顺序、拆分方式和容错策略。把它理解成“这次书稿项目怎么排流水线”。
+            这里决定流程顺序、拆分方式和容错策略。
           </CardDescription>
         </div>
       </CardHeader>
@@ -42,7 +42,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
           <div className="space-y-1">
             <Label className="text-sm">流程模式</Label>
             <p className="text-xs text-muted-foreground">
-              逐页分析模式会走“逐页分析 → 分块综合 → 整书综合”；直综合写作会走“逐页分析 → 整书综合 → 写作前统稿 → 章节写作”，中间不再做分块综合。
+              逐页分析会保留分块综合；直综合写作会跳过分块综合，直接进入整书综合与章节写作。
             </p>
           </div>
           <Tabs
@@ -82,7 +82,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
             <div className="space-y-1">
               <Label className="text-sm">章节写作附带场景图</Label>
               <p className="text-xs text-muted-foreground">
-                关闭后，章节写作只发送结构化文本、台词台账和写作前统稿，不再附带当前场景图片。这样通常更稳，能减少空回和上下文过大。
+                关闭后只发送结构化文本、对白台账和写作前统稿；通常更稳，也更省上下文。
               </p>
             </div>
             <Switch
@@ -91,9 +91,6 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
               disabled={disabled}
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            当前：{config.includeSectionImages ? '带图写作' : '纯文本写作（默认）'}
-          </p>
         </div>
 
         {isSplitDraftMode ? (
@@ -103,7 +100,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
                 <div className="space-y-1">
                   <Label className="text-sm">章节默认分段数（直综合写作）</Label>
                   <p className="text-xs text-muted-foreground">
-                    决定整书综合后默认拆成几部分进入章节写作。`0` 表示自动按每 8 页一章估算，默认值为 `8`。
+                    决定整书综合后默认拆成几部分进入章节写作。`0` 表示自动按每 8 页一章估算。
                   </p>
                 </div>
                 <div className="w-24">
@@ -151,7 +148,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
                 disabled={disabled}
               />
               <p className="text-xs text-muted-foreground">
-                这个模式同样先做逐页分析，`0` 表示按当前视觉模型自动选择更稳的分组大小。多图识别通常建议保持在 `2-4` 张，然后直接进入整书综合，不再经过分块综合。
+                `0` 表示按当前视觉模型自动分组。多图识别通常保持在 `2-4` 张更稳。
               </p>
             </div>
           </>
@@ -173,7 +170,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
                 disabled={disabled}
               />
               <p className="text-xs text-muted-foreground">
-                控制逐页分析阶段每次发给 AI 的图片数量。`0` 现在表示按当前视觉模型自动选择更稳的分组大小，而不是把整批图片并成一组。多图识别通常建议保持在 `2-4` 张。
+                控制逐页分析每次发给 AI 的图片数。`0` 表示按当前视觉模型自动分组；多图识别通常建议保持在 `2-4` 张。
               </p>
             </div>
 
@@ -193,7 +190,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
                 disabled={disabled}
               />
               <p className="text-xs text-muted-foreground">
-                控制后续“分块综合”会把整书切成多少块。页数不足时会自动缩到总页数。
+                控制后续分块综合会把整书切成多少块；页数不足时会自动缩到总页数。
               </p>
             </div>
           </>
@@ -215,7 +212,7 @@ export function OrchestratorConfigPanel({ config, onUpdate, disabled }: Orchestr
             disabled={disabled}
           />
           <p className="text-xs text-muted-foreground">
-            同时处理的图片预处理与请求数量。通常 `2-4` 更稳，过高可能更容易撞到限流。
+            同时处理的预处理和请求数量。通常 `2-4` 更稳，过高更容易撞到限流。
           </p>
         </div>
 

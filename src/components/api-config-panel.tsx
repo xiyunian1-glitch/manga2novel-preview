@@ -500,12 +500,12 @@ export function APIConfigPanel({
       {
         key: 'default',
         title: '默认接口',
-        description: '大多数情况下只配这一套就足够直接开始。',
+        description: '补齐 Key 和模型即可开始。',
         value: defaultProviderDisplay,
         badge: apiKey.trim() && model.trim() ? '已就绪' : '待补全',
         tone: apiKey.trim() && model.trim() ? 'ready' : 'pending',
         detail: model.trim() || '模型未设置',
-        extra: baseUrl.trim() || '使用预设地址',
+        extra: baseUrl.trim() || '预设地址',
       },
       {
         key: 'analysis',
@@ -520,7 +520,7 @@ export function APIConfigPanel({
         badge: quickRouteStates.analysis.anyEnabled ? (quickRouteStates.analysis.mixed ? '已细分' : '独立接口') : '跟随默认',
         tone: quickRouteStates.analysis.anyEnabled ? 'active' : 'muted',
         detail: quickRouteStates.analysis.representative.model?.trim() || '直接沿用默认模型',
-        extra: quickRouteStates.analysis.anyEnabled ? '适合把视觉识别和后续写作拆开' : '如果只跑单路接口，这里可以一直不动',
+        extra: quickRouteStates.analysis.anyEnabled ? '已单独配置' : '默认即可',
       },
       {
         key: 'writing',
@@ -535,7 +535,7 @@ export function APIConfigPanel({
         badge: quickRouteStates.writing.anyEnabled ? (quickRouteStates.writing.mixed ? '已细分' : '独立接口') : '跟随默认',
         tone: quickRouteStates.writing.anyEnabled ? 'active' : 'muted',
         detail: quickRouteStates.writing.representative.model?.trim() || '直接沿用默认模型',
-        extra: quickRouteStates.writing.anyEnabled ? '适合把叙事模型单独换成更擅长写作的一套' : '默认配置就能完成完整书稿生成',
+        extra: quickRouteStates.writing.anyEnabled ? '已单独配置' : '默认即可',
       },
     ];
   }, [
@@ -563,7 +563,7 @@ export function APIConfigPanel({
         order: '01',
         label: '配置档',
         title: profileName.trim() || activeProfile?.name || DEFAULT_PROFILE_NAME,
-        description: '先确定这套接口配置的命名和用途。',
+        description: '命名这套接口组合。',
         badge: hasProfileNameChange ? '待保存' : '已同步',
         tone: hasProfileNameChange ? 'pending' : 'neutral',
       },
@@ -572,7 +572,7 @@ export function APIConfigPanel({
         order: '02',
         label: '默认接口',
         title: defaultProviderDisplay,
-        description: defaultConfigReady ? (model.trim() || '模型已就绪') : '先补齐 API Key 和模型',
+        description: defaultConfigReady ? (model.trim() || 'Key / 模型已就绪') : '补齐 Key 和模型',
         badge: defaultConfigReady ? '已就绪' : '待补全',
         tone: defaultConfigReady ? 'ready' : 'pending',
       },
@@ -581,7 +581,7 @@ export function APIConfigPanel({
         order: '03',
         label: '流程分流',
         title: routingEnabledCount > 0 ? `已启用 ${routingEnabledCount} 路` : '暂不拆分',
-        description: routingEnabledCount > 0 ? '分析和写作可以拆到不同接口' : '默认接口可直接覆盖全流程',
+        description: routingEnabledCount > 0 ? '分析 / 写作已拆分' : '默认接口覆盖全流程',
         badge: routingEnabledCount > 0 ? '可调优' : '可选项',
         tone: routingEnabledCount > 0 ? 'active' : 'neutral',
       },
@@ -590,7 +590,7 @@ export function APIConfigPanel({
         order: '04',
         label: '保存确认',
         title: hasDraftChanges ? '有未保存改动' : '当前已同步',
-        description: hasDraftChanges ? '检查摘要后保存这套配置档。' : '没有新的改动需要提交。',
+        description: hasDraftChanges ? '检查后保存。' : '没有新的改动。',
         badge: hasDraftChanges ? '准备保存' : '无需保存',
         tone: hasDraftChanges ? 'active' : 'neutral',
       },
@@ -891,30 +891,26 @@ export function APIConfigPanel({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <div className="rounded-[1rem] border border-dashed border-border/70 bg-background/50 px-3.5 py-2.5 text-xs leading-5 text-muted-foreground">
-          直接点击下方卡片即可进入对应步骤；大多数情况下只需要先补齐默认接口。
-        </div>
-
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {routeOverviewCards.map((card) => (
             <button
               key={card.key}
               type="button"
               className={cn(
-                'rounded-[1.2rem] border px-3.5 py-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_16px_34px_rgba(44,33,24,0.08)] sm:px-4 sm:py-4',
+                'rounded-[1.2rem] border px-3.5 py-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_18px_40px_var(--panel-shadow)] sm:px-4 sm:py-4',
                 card.tone === 'ready' && 'border-primary/20 bg-primary/6',
-                card.tone === 'pending' && 'border-amber-200 bg-amber-50/70',
+                card.tone === 'pending' && 'status-surface-pending',
                 card.tone === 'active' && 'border-primary/15 bg-background/70',
                 card.tone === 'muted' && 'border-border/70 bg-background/55'
               )}
               onClick={() => openEditorAtStep(card.key === 'default' ? 'default' : 'routing')}
               data-action="open-api-config-step"
               data-step={card.key === 'default' ? 'default' : 'routing'}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.title}</div>
-                  <div className="mt-2 font-serif text-[0.98rem] font-semibold leading-snug text-foreground sm:text-[1.05rem]">
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.title}</div>
+                    <div className="mt-2 font-serif text-[0.98rem] font-semibold leading-snug text-foreground sm:text-[1.05rem]">
                     {card.value}
                   </div>
                 </div>
@@ -922,9 +918,8 @@ export function APIConfigPanel({
                   {card.badge}
                 </Badge>
               </div>
-              <div className="mt-3 text-xs leading-5 text-muted-foreground">{card.description}</div>
-              <div className="mt-2 text-xs font-medium text-foreground/88">{card.detail}</div>
-              <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground xl:block">{card.extra}</div>
+              <div className="mt-3 text-xs leading-5 text-foreground/88">{card.detail}</div>
+              <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{card.extra}</div>
               <div className="mt-3 text-[11px] tracking-[0.12em] text-primary/80">
                 点击编辑
               </div>
@@ -933,9 +928,9 @@ export function APIConfigPanel({
         </div>
 
         <div className="rounded-xl border bg-muted/10 p-3.5">
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] xl:items-start">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] xl:items-center">
             <div className="space-y-2">
-              <Label>命名配置档</Label>
+              <Label>当前配置档</Label>
               <Select value={activeProfileId || activeProfile?.id || ''} onValueChange={handleSwitchProfile} disabled={disabled || profileBusy}>
                 <SelectTrigger className="w-full bg-background/80">
                   <SelectValue placeholder="选择配置档">
@@ -950,21 +945,13 @@ export function APIConfigPanel({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs leading-5 text-muted-foreground">
-                不同供应商、不同模型组合都能单独存成一档，切换时不会互相覆盖。
-              </p>
             </div>
 
-            <div className="rounded-[1rem] border border-border/70 bg-background/72 px-4 py-3 text-sm leading-6 text-foreground/86">
-              <div className="text-[11px] tracking-[0.12em] text-muted-foreground">当前摘要</div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-                <span>默认接口：{defaultProviderDisplay}</span>
-                <span>分析分流：{quickRouteStates.analysis.anyEnabled ? '已启用' : '跟随默认'}</span>
-                <span>写作分流：{quickRouteStates.writing.anyEnabled ? '已启用' : '跟随默认'}</span>
-              </div>
-              <div className="mt-2 text-xs text-muted-foreground">
-                最近更新：{activeProfile?.updatedAt ? new Date(activeProfile.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '暂无'}
-              </div>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <Badge variant="outline">默认：{defaultProviderDisplay}</Badge>
+              <Badge variant="outline">分析：{quickRouteStates.analysis.anyEnabled ? '独立' : '跟随默认'}</Badge>
+              <Badge variant="outline">写作：{quickRouteStates.writing.anyEnabled ? '独立' : '跟随默认'}</Badge>
+              <Badge variant="outline">更新：{formatProfileUpdatedAt(activeProfile?.updatedAt)}</Badge>
             </div>
           </div>
         </div>
@@ -974,26 +961,12 @@ export function APIConfigPanel({
             <DialogHeader className="space-y-2">
               <DialogTitle>API 配置</DialogTitle>
               <DialogDescription>
-                改成分步式编辑：先确定配置档，再补默认接口，只有需要双路 API 时再看分流，最后统一检查并保存。
+                默认接口必填；流程分流只在需要双路 API 时再开。
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
               <div className="space-y-3">
-                <div className="hidden rounded-[1.25rem] border border-border/75 bg-background/62 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] lg:block">
-                  <div className="text-[11px] tracking-[0.12em] text-muted-foreground">CURRENT STEP</div>
-                  <div className="mt-2 font-serif text-[1.18rem] font-semibold text-foreground">
-                    {currentEditorStep.order} · {currentEditorStep.label}
-                  </div>
-                  <div className="mt-2 text-sm leading-7 text-muted-foreground">
-                    {currentEditorStep.description}
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Badge variant={currentEditorStep.tone === 'ready' ? 'default' : 'outline'}>{currentEditorStep.badge}</Badge>
-                    <Badge variant="outline">{currentEditorStep.title}</Badge>
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-1 lg:gap-2">
                   {editorSteps.map((step) => {
                     const isActive = editorStep === step.id;
@@ -1011,19 +984,18 @@ export function APIConfigPanel({
                         onClick={() => setEditorStep(step.id)}
                         data-action="switch-api-editor-step"
                         data-step={step.id}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{step.order}</div>
-                            <div className="mt-1 font-medium text-foreground">{step.label}</div>
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{step.order}</div>
+                              <div className="mt-1 font-medium text-foreground">{step.label}</div>
+                            </div>
+                            <Badge variant={isActive ? 'default' : 'outline'}>{step.badge}</Badge>
                           </div>
-                          <Badge variant={isActive ? 'default' : 'outline'}>{step.badge}</Badge>
-                        </div>
-                        <div className="mt-2 hidden text-sm text-foreground/88 lg:block">{step.title}</div>
-                        <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground lg:block">{step.description}</div>
-                      </button>
-                    );
-                  })}
+                          <div className="mt-2 hidden text-xs text-muted-foreground lg:block">{step.title}</div>
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
 
@@ -1039,7 +1011,7 @@ export function APIConfigPanel({
                     <>
                       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
                         <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
-                          <div className="mb-3 text-sm font-medium">步骤一：先给这套配置命名</div>
+                          <div className="mb-3 text-sm font-medium">给这套配置命名</div>
                           <div className="space-y-2">
                             <Label>配置档名称</Label>
                             <Input
@@ -1049,14 +1021,12 @@ export function APIConfigPanel({
                               disabled={disabled || profileBusy}
                               data-field="api-profile-name"
                             />
-                            <p className="text-xs leading-5 text-muted-foreground">
-                              建议直接写使用场景，比如：OpenRouter 写作 / Gemini 分析。以后切换会很顺手。
-                            </p>
+                            <p className="text-xs leading-5 text-muted-foreground">建议直接写使用场景，例如：OpenRouter 写作 / Gemini 分析。</p>
                           </div>
                         </div>
 
                         <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
-                          <div className="mb-3 text-sm font-medium">当前配置档切换</div>
+                          <div className="mb-3 text-sm font-medium">切换已有配置档</div>
                           <div className="space-y-2">
                             <Label>选择配置档</Label>
                             <Select value={activeProfileId || activeProfile?.id || ''} onValueChange={handleSwitchProfile} disabled={disabled || profileBusy}>
@@ -1073,26 +1043,17 @@ export function APIConfigPanel({
                                 ))}
                               </SelectContent>
                             </Select>
-                            <p className="text-xs leading-5 text-muted-foreground">
-                              不同供应商、不同模型组合都能单独存成一档，切换时不会互相覆盖。
-                            </p>
+                            <p className="text-xs leading-5 text-muted-foreground">不同供应商或模型组合都能单独存档。</p>
                           </div>
                         </div>
-                      </div>
-
-                      <div className="rounded-[1.25rem] border border-dashed border-border/75 bg-background/60 px-4 py-4 text-sm leading-7 text-muted-foreground">
-                        默认接口会被所有阶段沿用。只有确定要把分析和写作拆到不同平台时，才需要继续配置第二套 API。
                       </div>
                     </>
                   ) : null}
 
                 {editorStep === 'default' ? (
                 <div className="space-y-4 rounded-2xl border bg-muted/10 p-4">
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium">先选服务商预设</div>
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      预设会自动带出接口类型和默认 URL；补齐 Key 和模型后就能直接开始。
-                    </p>
+                  <div className="text-xs leading-5 text-muted-foreground">
+                    先选服务商预设，再补齐 Key 和模型。
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
@@ -1293,12 +1254,8 @@ export function APIConfigPanel({
                         只在需要时拆成分析 / 写作两路
                       </div>
                       <p className="text-xs leading-5 text-muted-foreground">
-                        大多数情况下，一套默认接口就够了；只有明确想拆给不同平台时，才需要继续配置这里。
+                        大多数情况下默认接口就够了；只有明确想拆给不同平台时，才需要继续配置这里。
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">分析分流 {quickRouteStates.analysis.anyEnabled ? '已启用' : '未启用'}</Badge>
-                        <Badge variant="outline">写作分流 {quickRouteStates.writing.anyEnabled ? '已启用' : '未启用'}</Badge>
-                      </div>
                     </div>
 
                     <div className="grid gap-4 xl:grid-cols-2">
@@ -1532,19 +1489,24 @@ export function APIConfigPanel({
                   <>
                     <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
                       <div className="text-sm font-medium">保存前检查</div>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        用这一页确认默认接口、分流状态和配置档命名是否都正确。确认无误后直接保存。
-                      </p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">确认配置档名称、默认接口和分流状态即可。</p>
                     </div>
 
-                    <div className="grid gap-3 xl:grid-cols-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
+                        <div className="text-[11px] tracking-[0.12em] text-muted-foreground">配置档</div>
+                        <div className="mt-2 text-sm leading-6 text-foreground/86">
+                          {profileName.trim() || activeProfile?.name || DEFAULT_PROFILE_NAME}
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">最近更新：{formatProfileUpdatedAt(activeProfile?.updatedAt)}</div>
+                      </div>
                       {routeOverviewCards.map((card) => (
                         <div
                           key={`review-${card.key}`}
                           className={cn(
                             'rounded-[1.2rem] border px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]',
                             card.tone === 'ready' && 'border-primary/20 bg-primary/6',
-                            card.tone === 'pending' && 'border-amber-200 bg-amber-50/70',
+                            card.tone === 'pending' && 'status-surface-pending',
                             card.tone === 'active' && 'border-primary/15 bg-background/70',
                             card.tone === 'muted' && 'border-border/70 bg-background/55'
                           )}
@@ -1556,23 +1518,10 @@ export function APIConfigPanel({
                             </div>
                             <Badge variant={card.tone === 'pending' ? 'outline' : 'secondary'} className="shrink-0">{card.badge}</Badge>
                           </div>
-                          <div className="mt-3 text-xs leading-5 text-muted-foreground">{card.description}</div>
-                          <div className="mt-3 rounded-2xl border border-border/60 bg-background/70 px-3 py-2.5">
-                            <div className="text-xs font-medium text-foreground">{card.detail}</div>
-                            <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{card.extra}</div>
-                          </div>
+                          <div className="mt-3 text-xs font-medium text-foreground">{card.detail}</div>
+                          <div className="mt-1 text-[11px] leading-5 text-muted-foreground">{card.extra}</div>
                         </div>
                       ))}
-                    </div>
-
-                    <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
-                      <div className="text-sm font-medium">配置档</div>
-                      <div className="mt-2 text-sm leading-6 text-foreground/86">
-                        {profileName.trim() || activeProfile?.name || DEFAULT_PROFILE_NAME}
-                      </div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        最近更新：{formatProfileUpdatedAt(activeProfile?.updatedAt)}
-                      </div>
                     </div>
                   </>
                 ) : null}

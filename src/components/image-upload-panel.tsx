@@ -65,7 +65,9 @@ export function ImageUploadPanel({
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverItemIndex, setDragOverItemIndex] = useState<number | null>(null);
   const [previewImageId, setPreviewImageId] = useState<string | null>(null);
+  const dropzoneHintId = 'image-upload-dropzone-hint';
 
   useEffect(() => {
     const input = folderInputRef.current;
@@ -176,16 +178,44 @@ export function ImageUploadPanel({
 
   const handleDragLeave = useCallback(() => setIsDragOver(false), []);
 
+  const handleDropzoneKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) {
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openFilePicker();
+    }
+  }, [disabled, openFilePicker]);
+
   // 排序拖拽
-  const handleItemDragStart = (index: number) => setDragIndex(index);
+  const handleItemDragStart = (index: number) => {
+    setDragIndex(index);
+    setDragOverItemIndex(index);
+  };
   const handleItemDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragIndex === null) {
+      return;
+    }
+
+    if (dragOverItemIndex !== index) {
+      setDragOverItemIndex(index);
+    }
+  };
+  const handleItemDrop = (e: React.DragEvent, index: number) => {
     e.preventDefault();
     if (dragIndex !== null && dragIndex !== index) {
       onReorder(dragIndex, index);
-      setDragIndex(index);
     }
+    setDragIndex(null);
+    setDragOverItemIndex(null);
   };
-  const handleItemDragEnd = () => setDragIndex(null);
+  const handleItemDragEnd = () => {
+    setDragIndex(null);
+    setDragOverItemIndex(null);
+  };
   const previewImage = previewImageId ? images.find((image) => image.id === previewImageId) || null : null;
   const readyCount = useMemo(() => images.filter((image) => image.status === 'ready').length, [images]);
   const processingCount = useMemo(() => images.filter((image) => image.status === 'processing').length, [images]);
@@ -247,6 +277,12 @@ export function ImageUploadPanel({
               if (target.closest('[data-picker-control="true"]')) return;
               openFilePicker();
             }}
+            onKeyDown={handleDropzoneKeyDown}
+            role="button"
+            tabIndex={disabled ? -1 : 0}
+            aria-disabled={disabled}
+            aria-label="上传漫画图片或文件夹"
+            aria-describedby={dropzoneHintId}
           >
             <div className="mx-auto max-w-xl text-center">
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-[1.1rem] border border-border/70 bg-background/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
@@ -255,9 +291,9 @@ export function ImageUploadPanel({
               <div className="font-serif text-[1.08rem] font-semibold text-foreground sm:text-[1.22rem]">
                 把整话画稿拖进素材台，建立这次书稿的页序。
               </div>
-              <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                <span className="sm:hidden">支持 JPG / PNG / WebP；也可整文件夹导入。</span>
-                <span className="hidden sm:inline">支持 JPG / PNG / WebP。你可以一次性拖入多张图片，也可以直接选择整个文件夹；后续排序会决定逐页分析和章节生成的基准顺序。</span>
+              <p id={dropzoneHintId} className="mt-3 text-sm leading-7 text-muted-foreground">
+                <span className="sm:hidden">支持 JPG / PNG / WebP；点按、回车或空格都能打开上传。</span>
+                <span className="hidden sm:inline">支持 JPG / PNG / WebP，可拖入多张图片或整个文件夹；页序先按文件名自然排序，后续还能拖拽微调。</span>
               </p>
               <div
                 className="mt-4 flex flex-wrap items-center justify-center gap-2"
@@ -289,19 +325,10 @@ export function ImageUploadPanel({
                   上传文件夹
                 </Button>
               </div>
-              <div className="mt-5 grid grid-cols-2 gap-2.5 text-left sm:grid-cols-3">
-                <div className="rounded-2xl border border-border/70 bg-background/68 px-3 py-3">
-                  <div className="text-[11px] tracking-[0.12em] text-muted-foreground">页序规则</div>
-                  <div className="mt-1 text-sm leading-6 text-foreground/90">按文件名自然排序，可拖拽微调顺序。</div>
-                </div>
-                <div className="rounded-2xl border border-border/70 bg-background/68 px-3 py-3">
-                  <div className="text-[11px] tracking-[0.12em] text-muted-foreground">移动端兼容</div>
-                  <div className="mt-1 text-sm leading-6 text-foreground/90">手机能否直选文件夹取决于浏览器，上传单图同样可用。</div>
-                </div>
-                <div className="col-span-2 rounded-2xl border border-border/70 bg-background/68 px-3 py-3 sm:col-span-1">
-                  <div className="text-[11px] tracking-[0.12em] text-muted-foreground">后续用途</div>
-                  <div className="mt-1 text-sm leading-6 text-foreground/90">这些页会进入逐页分析、整书综合和章节拆分。</div>
-                </div>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full border border-border/70 bg-background/72 px-3 py-1">自然排序</span>
+                <span className="rounded-full border border-border/70 bg-background/72 px-3 py-1">可拖拽改页序</span>
+                <span className="rounded-full border border-border/70 bg-background/72 px-3 py-1">手机端也可逐张上传</span>
               </div>
             </div>
           </div>
@@ -343,16 +370,13 @@ export function ImageUploadPanel({
 
         {images.length > 0 && (
           <>
-            <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-3">
+            <div className="hidden rounded-[1.2rem] border border-border/75 p-3 xl:block workbench-panel-soft">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] tracking-[0.12em] text-muted-foreground">PAGE STRIP</div>
-                  <div className="mt-1 text-sm text-foreground/90">
-                    <span className="sm:hidden">点缩略图看大图，下方列表可拖拽改顺序。</span>
-                    <span className="hidden sm:inline">点击缩略图查看大图，拖拽下方列表可微调阅读顺序。</span>
-                  </div>
+                  <div className="mt-1 text-sm text-foreground/90">只做快速翻页预览；正式排序以下方列表为准。</div>
                 </div>
-                <Badge variant="outline" className="hidden sm:inline-flex">首尾顺序已锁定在当前列表</Badge>
+                <Badge variant="outline">快速预览</Badge>
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {images.map((img, index) => (
@@ -361,6 +385,7 @@ export function ImageUploadPanel({
                     type="button"
                     className="group min-w-[84px] rounded-[1rem] border border-border/70 bg-background/75 p-2 text-left transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_10px_24px_rgba(37,71,184,0.08)]"
                     onClick={() => setPreviewImageId(img.id)}
+                    aria-label={`查看第 ${index + 1} 页大图`}
                   >
                     <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20">
                       <Image
@@ -387,11 +412,13 @@ export function ImageUploadPanel({
                   key={img.id}
                   className={cn(
                     'group rounded-[1.15rem] border border-border/75 bg-background/68 p-3 transition hover:border-primary/25 hover:bg-background/88',
-                    dragIndex === index && 'border-primary/35 bg-primary/6'
+                    dragIndex === index && 'border-primary/35 bg-primary/6',
+                    dragOverItemIndex === index && dragIndex !== index && 'border-primary/25 bg-primary/5'
                   )}
                   draggable={!disabled}
                   onDragStart={() => handleItemDragStart(index)}
                   onDragOver={(e) => handleItemDragOver(e, index)}
+                  onDrop={(e) => handleItemDrop(e, index)}
                   onDragEnd={handleItemDragEnd}
                 >
                   <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
@@ -404,6 +431,7 @@ export function ImageUploadPanel({
                         type="button"
                         className="shrink-0 overflow-hidden rounded-[0.9rem] border border-border/70 transition hover:border-primary hover:ring-2 hover:ring-primary/15"
                         onClick={() => setPreviewImageId(img.id)}
+                        aria-label={`查看第 ${index + 1} 页大图`}
                         title="点击查看大图"
                         draggable={false}
                       >
@@ -426,10 +454,10 @@ export function ImageUploadPanel({
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                         <span>原图 {formatSize(img.originalSize)}</span>
                         {img.compressedSize && img.compressedSize !== img.originalSize ? (
-                          <span className="hidden text-emerald-700 sm:inline">处理后 {formatSize(img.compressedSize)}</span>
+                          <span className="text-status-positive hidden sm:inline">处理后 {formatSize(img.compressedSize)}</span>
                         ) : null}
                         {img.status === 'ready' && img.compressedSize === img.originalSize ? (
-                          <span className="hidden text-sky-700 sm:inline">原图直传</span>
+                          <span className="text-status-info hidden sm:inline">原图直传</span>
                         ) : null}
                       </div>
                     </div>

@@ -11,8 +11,8 @@ function Card({
     <div
       data-slot="card"
       data-size={size}
-      className={cn(
-        "group/card flex flex-col gap-4 overflow-hidden rounded-[1.5rem] border border-border/80 bg-card py-4 text-sm text-card-foreground shadow-[0_18px_48px_rgba(52,39,27,0.08)] ring-1 ring-white/55 backdrop-blur-xl has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 dark:shadow-[0_22px_60px_rgba(0,0,0,0.34)] *:[img:first-child]:rounded-t-[1.5rem] *:[img:last-child]:rounded-b-[1.5rem]",
+        className={cn(
+        "group/card flex flex-col gap-4 overflow-hidden rounded-[1.5rem] border border-border/80 bg-card py-4 text-sm text-card-foreground shadow-[0_18px_48px_var(--panel-shadow)] ring-1 ring-white/55 backdrop-blur-xl has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-[1.5rem] *:[img:last-child]:rounded-b-[1.5rem]",
         className
       )}
       {...props}

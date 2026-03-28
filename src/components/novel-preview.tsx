@@ -19,6 +19,7 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const previewBodyId = 'novel-preview-body';
 
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(taskState.fullNovel);
@@ -162,6 +163,8 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
                 onClick={() => setExpanded((prev) => !prev)}
                 data-action="toggle-novel-preview"
                 data-expanded={expanded ? 'true' : 'false'}
+                aria-expanded={expanded}
+                aria-controls={previewBodyId}
               >
                 {expanded ? <ChevronUp className="mr-1 h-3 w-3" /> : <ChevronDown className="mr-1 h-3 w-3" />}
                 {expanded ? '收起预览' : '展开预览'}
@@ -213,22 +216,16 @@ export function NovelPreview({ taskState, onExport }: NovelPreviewProps) {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="flex min-h-0 flex-1 flex-col gap-4 pt-4">
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="story-stat py-3">
-              <div className="story-stat-label">已生成章节</div>
-              <div className="story-stat-value text-[1.3rem]">{visibleSections.length || '0'}</div>
-            </div>
-            <div className="story-stat py-3">
-              <div className="story-stat-label">稿件状态</div>
-              <div className="story-stat-value text-[1.15rem]">{hasFinalPolish ? '终稿' : visibleSections.length > 0 ? '连载中' : '待生成'}</div>
-            </div>
-          </div>
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
           {!expanded ? (
-            <div className="workbench-panel-soft rounded-[1.2rem] border border-border/70 px-4 py-3">
+            <div id={previewBodyId} className="workbench-panel-soft rounded-[1.2rem] border border-border/70 px-4 py-3">
               <div className="text-sm leading-7 text-muted-foreground">{previewSummary}</div>
             </div>
-          ) : renderPreviewBody(previewHeightClass)}
+          ) : (
+            <div id={previewBodyId}>
+              {renderPreviewBody(previewHeightClass)}
+            </div>
+          )}
         </CardContent>
       </Card>
 

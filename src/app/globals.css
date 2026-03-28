@@ -47,6 +47,31 @@
   --story-stat-bg: rgba(255, 255, 255, 0.84);
   --story-stat-border: rgba(148, 163, 184, 0.18);
   --story-stat-highlight: rgba(255, 255, 255, 0.54);
+  --status-pending-bg: rgba(228, 236, 255, 0.9);
+  --status-pending-border: rgba(96, 124, 193, 0.28);
+  --status-pending-text: rgba(51, 70, 119, 0.92);
+  --status-advice-bg: rgba(235, 242, 255, 0.94);
+  --status-advice-border: rgba(111, 138, 206, 0.26);
+  --status-advice-text: rgba(55, 74, 124, 0.94);
+  --status-advice-chip-bg: rgba(220, 232, 255, 0.9);
+  --status-advice-chip-border: rgba(111, 138, 206, 0.3);
+  --status-advice-chip-text: rgba(49, 69, 123, 0.96);
+  --status-danger-bg: rgba(254, 242, 242, 0.86);
+  --status-danger-panel-bg: rgba(255, 246, 246, 0.92);
+  --status-danger-border: rgba(220, 38, 38, 0.24);
+  --status-danger-text: rgba(185, 28, 28, 0.92);
+  --status-danger-shadow: rgba(190, 60, 45, 0.12);
+  --status-processing-text: #2563eb;
+  --status-success-text: #0f766e;
+  --status-error-text: rgba(185, 28, 28, 0.92);
+  --status-skipped-text: rgba(79, 101, 160, 0.92);
+  --status-info-text: rgba(58, 100, 196, 0.92);
+  --status-positive-text: rgba(15, 118, 110, 0.92);
+  --status-info-bg: rgba(234, 242, 255, 0.94);
+  --status-info-border: rgba(96, 124, 193, 0.24);
+  --status-positive-bg: rgba(233, 246, 243, 0.94);
+  --status-positive-border: rgba(73, 145, 128, 0.24);
+  --dialog-overlay: rgba(228, 236, 251, 0.42);
 }
 
 :root[data-theme="paper"] {
@@ -94,6 +119,31 @@
   --story-stat-bg: rgba(255, 252, 247, 0.76);
   --story-stat-border: rgba(70, 50, 33, 0.1);
   --story-stat-highlight: rgba(255, 255, 255, 0.45);
+  --status-pending-bg: rgba(236, 238, 244, 0.9);
+  --status-pending-border: rgba(104, 111, 144, 0.22);
+  --status-pending-text: rgba(73, 77, 100, 0.92);
+  --status-advice-bg: rgba(242, 241, 246, 0.94);
+  --status-advice-border: rgba(111, 118, 150, 0.24);
+  --status-advice-text: rgba(74, 78, 102, 0.94);
+  --status-advice-chip-bg: rgba(231, 233, 241, 0.9);
+  --status-advice-chip-border: rgba(111, 118, 150, 0.28);
+  --status-advice-chip-text: rgba(67, 71, 94, 0.96);
+  --status-danger-bg: rgba(255, 244, 241, 0.88);
+  --status-danger-panel-bg: rgba(255, 246, 244, 0.94);
+  --status-danger-border: rgba(190, 60, 45, 0.22);
+  --status-danger-text: rgba(154, 52, 41, 0.94);
+  --status-danger-shadow: rgba(115, 69, 54, 0.1);
+  --status-processing-text: #2547b8;
+  --status-success-text: #2f6c5e;
+  --status-error-text: rgba(154, 52, 41, 0.94);
+  --status-skipped-text: rgba(95, 96, 130, 0.92);
+  --status-info-text: rgba(37, 71, 184, 0.92);
+  --status-positive-text: rgba(47, 108, 94, 0.92);
+  --status-info-bg: rgba(239, 241, 247, 0.94);
+  --status-info-border: rgba(104, 111, 144, 0.22);
+  --status-positive-bg: rgba(239, 245, 242, 0.94);
+  --status-positive-border: rgba(94, 129, 116, 0.22);
+  --dialog-overlay: rgba(224, 214, 198, 0.42);
 }
 
 :root[data-theme="ink"] {
@@ -141,6 +191,31 @@
   --story-stat-bg: rgba(20, 28, 44, 0.78);
   --story-stat-border: rgba(159, 179, 206, 0.12);
   --story-stat-highlight: rgba(255, 255, 255, 0.05);
+  --status-pending-bg: rgba(26, 38, 59, 0.86);
+  --status-pending-border: rgba(127, 179, 255, 0.2);
+  --status-pending-text: rgba(191, 213, 247, 0.94);
+  --status-advice-bg: rgba(23, 35, 55, 0.92);
+  --status-advice-border: rgba(127, 179, 255, 0.22);
+  --status-advice-text: rgba(191, 213, 247, 0.94);
+  --status-advice-chip-bg: rgba(32, 47, 72, 0.92);
+  --status-advice-chip-border: rgba(127, 179, 255, 0.24);
+  --status-advice-chip-text: rgba(215, 230, 252, 0.96);
+  --status-danger-bg: rgba(62, 27, 27, 0.82);
+  --status-danger-panel-bg: rgba(54, 24, 24, 0.92);
+  --status-danger-border: rgba(255, 123, 114, 0.24);
+  --status-danger-text: rgba(255, 185, 180, 0.96);
+  --status-danger-shadow: rgba(1, 4, 10, 0.32);
+  --status-processing-text: #7fb3ff;
+  --status-success-text: #4ecdc4;
+  --status-error-text: rgba(255, 185, 180, 0.96);
+  --status-skipped-text: rgba(172, 190, 222, 0.92);
+  --status-info-text: rgba(127, 179, 255, 0.94);
+  --status-positive-text: rgba(78, 205, 196, 0.94);
+  --status-info-bg: rgba(19, 33, 54, 0.92);
+  --status-info-border: rgba(127, 179, 255, 0.2);
+  --status-positive-bg: rgba(19, 42, 44, 0.92);
+  --status-positive-border: rgba(78, 205, 196, 0.2);
+  --dialog-overlay: rgba(8, 12, 20, 0.56);
 }
 
 @theme inline {
@@ -309,6 +384,150 @@ body::after {
 .workbench-panel-soft-strong {
   background: var(--panel-soft-strong-bg);
   box-shadow: inset 0 1px 0 var(--panel-soft-highlight);
+}
+
+.dialog-overlay-surface {
+  background: var(--dialog-overlay);
+  backdrop-filter: blur(12px);
+}
+
+.dialog-surface {
+  background: linear-gradient(180deg, var(--panel-strong-start), var(--panel-strong-end));
+  border-color: var(--border);
+  box-shadow: 0 28px 84px var(--panel-shadow-strong);
+}
+
+.dialog-footer-surface {
+  background: var(--panel-soft-bg);
+  box-shadow: inset 0 1px 0 var(--panel-soft-highlight);
+}
+
+.status-surface-pending {
+  border-color: var(--status-pending-border);
+  background: var(--status-pending-bg);
+}
+
+.status-surface-advice {
+  border-color: var(--status-advice-border);
+  background: var(--status-advice-bg);
+  color: var(--status-advice-text);
+}
+
+.status-chip-advice {
+  border-color: var(--status-advice-chip-border);
+  background: var(--status-advice-chip-bg);
+  color: var(--status-advice-chip-text);
+}
+
+.status-surface-danger {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
+}
+
+.status-surface-info {
+  border-color: var(--status-info-border);
+  background: var(--status-info-bg);
+  color: var(--status-info-text);
+}
+
+.status-surface-positive {
+  border-color: var(--status-positive-border);
+  background: var(--status-positive-bg);
+  color: var(--status-positive-text);
+}
+
+.status-panel-danger {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-panel-bg);
+  box-shadow: 0 20px 48px var(--status-danger-shadow);
+}
+
+.text-status-pending {
+  color: var(--status-pending-text);
+}
+
+.text-status-processing {
+  color: var(--status-processing-text);
+}
+
+.text-status-success {
+  color: var(--status-success-text);
+}
+
+.text-status-error {
+  color: var(--status-error-text);
+}
+
+.text-status-skipped {
+  color: var(--status-skipped-text);
+}
+
+.text-status-info {
+  color: var(--status-info-text);
+}
+
+.text-status-positive {
+  color: var(--status-positive-text);
+}
+
+.cn-toast[data-sonner-toast][data-styled='true'] {
+  border-radius: calc(var(--radius) - 0.1rem);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 22px 58px var(--panel-shadow-strong);
+  background: linear-gradient(180deg, var(--panel-strong-start), var(--panel-strong-end));
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+.cn-toast-title[data-title] {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.cn-toast-description[data-description] {
+  color: currentColor !important;
+  opacity: 0.78;
+}
+
+.cn-toast-success[data-sonner-toast][data-styled='true'] {
+  background: var(--status-positive-bg);
+  border-color: var(--status-positive-border);
+  color: var(--status-positive-text);
+}
+
+.cn-toast-info[data-sonner-toast][data-styled='true'],
+.cn-toast-loading[data-sonner-toast][data-styled='true'] {
+  background: var(--status-info-bg);
+  border-color: var(--status-info-border);
+  color: var(--status-info-text);
+}
+
+.cn-toast-warning[data-sonner-toast][data-styled='true'] {
+  background: var(--status-advice-bg);
+  border-color: var(--status-advice-border);
+  color: var(--status-advice-text);
+}
+
+.cn-toast-error[data-sonner-toast][data-styled='true'] {
+  background: var(--status-danger-bg);
+  border-color: var(--status-danger-border);
+  color: var(--status-danger-text);
+}
+
+.cn-toast-close[data-close-button],
+.cn-toast-action[data-button],
+.cn-toast-cancel[data-cancel] {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border);
+  color: currentColor;
+  box-shadow: 0 10px 24px var(--panel-shadow);
+}
+
+html[data-theme='ink'] .cn-toast-close[data-close-button],
+html[data-theme='ink'] .cn-toast-action[data-button],
+html[data-theme='ink'] .cn-toast-cancel[data-cancel] {
+  background: rgba(19, 27, 40, 0.88);
 }
 
 input[type="password"]::-ms-reveal,

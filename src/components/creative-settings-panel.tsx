@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, WandSparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -86,10 +85,10 @@ export function CreativeSettingsPanel({
             创作设置
           </CardTitle>
           <CardDescription className="max-w-2xl text-[13px] leading-6 text-muted-foreground/90">
-            这里决定成稿的语气、文风密度和创作规则。把它当成给“写作编辑”下指令，而不是单纯调几个模型参数。
+            这里决定文风、写作模式和额外提示词。
           </CardDescription>
         </div>
-        <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2.5 md:grid-cols-3">
           <div className="story-stat py-3">
             <div className="story-stat-label">当前预设</div>
             <div className="story-stat-value text-[1.05rem]">{currentPreset?.name || '自定义'}</div>
@@ -102,21 +101,12 @@ export function CreativeSettingsPanel({
             <div className="story-stat-label">Temperature</div>
             <div className="story-stat-value text-[1.2rem]">{settings.temperature.toFixed(2)}</div>
           </div>
-          <div className="story-stat py-3">
-            <div className="story-stat-label">提示词结构</div>
-            <div className="story-stat-value text-[1.02rem]">{showSystemPrompt ? '深度编辑中' : '折叠预览'}</div>
-          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
-          <div className="mb-3 flex flex-wrap gap-2">
-            <Badge variant="default">先选预设</Badge>
-            <Badge variant="outline">再调写作模式</Badge>
-            <Badge variant="outline">最后补充特殊要求</Badge>
-          </div>
           <p className="text-sm leading-7 text-muted-foreground">
-            推荐做法是先用预设决定整体文风，再用“特殊提示词”补充本轮强调点，最后只在确实需要时展开底层系统规则。
+            推荐顺序：先选预设，再调写作模式与 temperature，只有需要时再展开底层提示词。
           </p>
         </div>
 
@@ -227,24 +217,28 @@ export function CreativeSettingsPanel({
               disabled={disabled}
               data-action="toggle-supplemental-prompt"
               data-expanded={showSupplementalPrompt ? 'true' : 'false'}
+              aria-expanded={showSupplementalPrompt}
+              aria-controls="creative-settings-supplemental-prompt"
             >
               {showSupplementalPrompt ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
               {showSupplementalPrompt ? '收起' : '展开'}
             </Button>
           </div>
-          {showSupplementalPrompt ? (
-            <Textarea
-              value={supplementalPrompt}
-              onChange={(event) => handleSupplementalPromptChange(event.target.value)}
-              disabled={disabled}
-              className="min-h-24 resize-y leading-6"
-              placeholder="输入额外创作要求或本轮强调点..."
-            />
-          ) : (
-            <div className="rounded-[1rem] border border-dashed border-muted-foreground/30 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-              这里适合放额外创作强调、临时补充要求或本轮特别想强化的表达重点。
-            </div>
-          )}
+          <div id="creative-settings-supplemental-prompt">
+            {showSupplementalPrompt ? (
+              <Textarea
+                value={supplementalPrompt}
+                onChange={(event) => handleSupplementalPromptChange(event.target.value)}
+                disabled={disabled}
+                className="min-h-24 resize-y leading-6"
+                placeholder="输入额外创作要求或本轮强调点..."
+              />
+            ) : (
+              <div className="rounded-[1rem] border border-dashed border-muted-foreground/30 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+                这里适合放额外创作强调、临时补充要求或本轮特别想强化的表达重点。
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
@@ -259,24 +253,28 @@ export function CreativeSettingsPanel({
               disabled={disabled}
               data-action="toggle-role-and-style"
               data-expanded={showRoleAndStyle ? 'true' : 'false'}
+              aria-expanded={showRoleAndStyle}
+              aria-controls="creative-settings-role-style"
             >
               {showRoleAndStyle ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
               {showRoleAndStyle ? '收起' : '展开'}
             </Button>
           </div>
-          {showRoleAndStyle ? (
-            <Textarea
-              value={roleAndStyle}
-              onChange={(event) => handleRoleAndStyleChange(event.target.value)}
-              disabled={disabled}
-              className="min-h-28 resize-y leading-6"
-              placeholder="输入角色设定、文风方向和叙事口吻..."
-            />
-          ) : (
-            <div className="rounded-[1rem] border border-dashed border-muted-foreground/30 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-              这里适合放角色设定、文风走向、叙事口吻和情绪张力等经常会改的内容。
-            </div>
-          )}
+          <div id="creative-settings-role-style">
+            {showRoleAndStyle ? (
+              <Textarea
+                value={roleAndStyle}
+                onChange={(event) => handleRoleAndStyleChange(event.target.value)}
+                disabled={disabled}
+                className="min-h-28 resize-y leading-6"
+                placeholder="输入角色设定、文风方向和叙事口吻..."
+              />
+            ) : (
+              <div className="rounded-[1rem] border border-dashed border-muted-foreground/30 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+                这里适合放角色设定、文风走向、叙事口吻和情绪张力等经常会改的内容。
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="workbench-panel-soft rounded-[1.2rem] border border-border/75 p-4">
@@ -291,24 +289,28 @@ export function CreativeSettingsPanel({
               disabled={disabled}
               data-action="toggle-system-prompt"
               data-expanded={showSystemPrompt ? 'true' : 'false'}
+              aria-expanded={showSystemPrompt}
+              aria-controls="creative-settings-system-prompt"
             >
               {showSystemPrompt ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
               {showSystemPrompt ? '收起' : '展开'}
             </Button>
           </div>
-          {showSystemPrompt ? (
-            <Textarea
-              value={systemPromptBody}
-              onChange={(event) => handleSystemPromptBodyChange(event.target.value)}
-              disabled={disabled}
-              className="min-h-72 resize-y leading-6"
-              placeholder="输入任务说明、输出规则和格式要求..."
-            />
-          ) : (
-            <div className="rounded-[1rem] border border-dashed border-muted-foreground/30 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
-              这里放任务说明、输出规则和 JSON 格式要求。User Prompt 模板已从前端隐藏。
-            </div>
-          )}
+          <div id="creative-settings-system-prompt">
+            {showSystemPrompt ? (
+              <Textarea
+                value={systemPromptBody}
+                onChange={(event) => handleSystemPromptBodyChange(event.target.value)}
+                disabled={disabled}
+                className="min-h-72 resize-y leading-6"
+                placeholder="输入任务说明、输出规则和格式要求..."
+              />
+            ) : (
+              <div className="rounded-[1rem] border border-dashed border-muted-foreground/30 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+                这里放任务说明、输出规则和 JSON 格式要求。User Prompt 模板已从前端隐藏。
+              </div>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground">
             修改后会实时参与每一轮分块请求。系统提示词更适合放结构化规则，而“风格”更适合放创作语气。
           </p>

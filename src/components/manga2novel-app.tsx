@@ -10,7 +10,7 @@ import {
   Send,
   SkipForward,
 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { AdvancedSettingsDeck } from '@/components/advanced-settings-deck';
 import { APIConfigPanel } from '@/components/api-config-panel';
 import { CreativeSettingsPanel } from '@/components/creative-settings-panel';
@@ -26,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Toaster } from '@/components/ui/sonner';
 import { getTroubleshootingAdvice } from '@/lib/error-hints';
 import type { APIConfig, LastAIRequest, OrchestratorConfig, RequestStage } from '@/lib/types';
 import {
@@ -233,7 +234,7 @@ export default function Manga2NovelApp() {
         key: 'creative' as const,
         kicker: 'Writing Direction',
         title: '写作指令面板',
-        description: '控制预设、写作模式、语气浓度和提示词层次，决定最后成稿像什么。',
+        description: '决定文风、写作模式和提示词层次。',
         summary: [
           `当前预设：${currentPresetDisplayName}`,
           `写作模式：${WRITING_MODE_LABELS[taskState.creativeSettings.writingMode]}`,
@@ -244,7 +245,7 @@ export default function Manga2NovelApp() {
         key: 'pipeline' as const,
         kicker: 'Queue Design',
         title: '流水线参数面板',
-        description: '控制流程模式、拆分策略、并发和重试，让整条转换流水线更稳。',
+        description: '决定流程模式、拆分、并发和重试。',
         summary: [
           `流程模式：${WORKFLOW_MODE_LABELS[taskState.config.workflowMode]}`,
           `逐页分组：${taskState.config.chunkSize === 0 ? '自动（自适应）' : `每组 ${taskState.config.chunkSize} 张`}`,
@@ -559,12 +560,12 @@ export default function Manga2NovelApp() {
                         max_tokens：{attempt.maxOutputTokens ?? '默认'}
                       </div>
                       {attempt.error ? (
-                        <div className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-red-700 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        <div className="status-surface-danger mt-2 rounded border px-2 py-1.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
                           {attempt.error}
                         </div>
                       ) : null}
                       {attempt.nextAction ? (
-                        <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-800 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        <div className="status-surface-advice mt-2 rounded border px-2 py-1.5 whitespace-pre-wrap [overflow-wrap:anywhere]">
                           后续动作：{attempt.nextAction}
                         </div>
                       ) : null}
@@ -593,19 +594,19 @@ export default function Manga2NovelApp() {
   );
 
   const currentFailureCard = currentFailure?.error ? (
-    <Card className="border-red-200 bg-red-50/90 shadow-[0_20px_48px_rgba(190,60,45,0.12)]">
+    <Card className="status-panel-danger">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">当前失败：{currentFailure.label}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="rounded-lg border border-red-200 bg-background/80 px-3 py-2 text-xs leading-5 text-red-700">
+        <div className="status-surface-danger rounded-lg border px-3 py-2 text-xs leading-5">
           {currentFailure.error}
         </div>
         {currentFailureAdvice ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+          <div className="status-surface-advice rounded-lg border px-3 py-2 text-xs leading-5">
             <Badge
               variant="outline"
-              className="border-amber-300 bg-amber-100/80 text-[11px] text-amber-900"
+              className="status-chip-advice text-[11px]"
             >
               {currentFailureAdvice.categoryLabel}
             </Badge>
@@ -704,7 +705,7 @@ export default function Manga2NovelApp() {
       data-current-stage={taskState.currentStage}
       data-start-ready={canStart ? 'true' : 'false'}
     >
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-right" />
 
       <header className="sticky top-0 z-50 border-b border-border/70 bg-background/78 backdrop-blur-xl supports-[backdrop-filter]:bg-background/68">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-2 px-4 py-2.5 lg:px-6 lg:py-3">
@@ -816,7 +817,7 @@ export default function Manga2NovelApp() {
             className={cn(
               'mb-6',
               recoveryNotice.type === 'interrupted-task'
-                ? 'border-amber-200 bg-amber-50/80'
+                ? 'status-surface-pending'
                 : 'border-primary/15 bg-primary/5'
             )}
           >
@@ -857,34 +858,62 @@ export default function Manga2NovelApp() {
 
         <div className="space-y-5 lg:hidden">
           {activeMobileWorkbench === 'config' ? (
-            <section className="space-y-2.5">
+            <section
+              id="mobile-workbench-panel-config"
+              role="tabpanel"
+              aria-labelledby="mobile-workbench-tab-config"
+              className="space-y-2.5"
+            >
               <div className="editorial-kicker">Configuration Desk</div>
               {configPanel}
             </section>
           ) : null}
 
           {activeMobileWorkbench === 'material' ? (
-            <section className="space-y-2.5">
+            <section
+              id="mobile-workbench-panel-material"
+              role="tabpanel"
+              aria-labelledby="mobile-workbench-tab-material"
+              className="space-y-2.5"
+            >
               <div className="editorial-kicker">Material Desk</div>
               {materialPanel}
             </section>
           ) : null}
 
           {activeMobileWorkbench === 'progress' ? (
-            <section className="space-y-2.5">
+            <section
+              id="mobile-workbench-panel-progress"
+              role="tabpanel"
+              aria-labelledby="mobile-workbench-tab-progress"
+              className="space-y-2.5"
+            >
               <div className="editorial-kicker">Pipeline Console</div>
               {progressPanelContent}
             </section>
           ) : null}
 
           {activeMobileWorkbench === 'advanced' ? (
-            <section className="space-y-2.5">
+            <section
+              id="mobile-workbench-panel-advanced"
+              role="tabpanel"
+              aria-labelledby="mobile-workbench-tab-advanced"
+              className="space-y-2.5"
+            >
               <div className="editorial-kicker">Prompt & Queue Tuning</div>
               {advancedPanel}
             </section>
           ) : null}
 
-          {activeMobileWorkbench === 'preview' ? previewPanel : null}
+          {activeMobileWorkbench === 'preview' ? (
+            <section
+              id="mobile-workbench-panel-preview"
+              role="tabpanel"
+              aria-labelledby="mobile-workbench-tab-preview"
+            >
+              {previewPanel}
+            </section>
+          ) : null}
         </div>
 
         <div className={cn('hidden lg:grid lg:grid-cols-1 lg:gap-5 xl:items-start', hasPreviewContent && 'xl:grid-cols-[minmax(0,0.93fr)_minmax(380px,1.07fr)]')}>

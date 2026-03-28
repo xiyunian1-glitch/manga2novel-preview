@@ -34,6 +34,8 @@ export function AdvancedSettingsDeck({
   sections,
   selectedKey,
 }: AdvancedSettingsDeckProps) {
+  const panelId = 'advanced-settings-panel';
+
   return (
     <Card className="workbench-panel overflow-hidden border-border/75">
       <CardHeader className="space-y-4 pb-4">
@@ -45,7 +47,7 @@ export function AdvancedSettingsDeck({
               高级设置
             </CardTitle>
             <CardDescription className="max-w-2xl text-[13px] leading-6 text-muted-foreground/90">
-              这里不再堆成一整块大表单，而是拆成两条独立编辑线：一条决定成稿的语言气质，一条决定整条流水线的运行方式。
+              把创作调性和流水线策略拆开处理，减少来回翻找。
             </CardDescription>
           </div>
           <Button
@@ -55,13 +57,15 @@ export function AdvancedSettingsDeck({
             className="self-start bg-background/72"
             onClick={onToggleOpen}
             data-action="toggle-advanced-settings"
+            aria-expanded={open}
+            aria-controls={panelId}
           >
             {open ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
             {open ? '收起高级设置' : '展开高级设置'}
           </Button>
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2" role="tablist" aria-label="高级设置分区">
           {Object.values(sections).map((section) => {
             const isActive = selectedKey === section.key;
 
@@ -69,6 +73,11 @@ export function AdvancedSettingsDeck({
               <button
                 key={section.key}
                 type="button"
+                id={`advanced-settings-tab-${section.key}`}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={panelId}
+                tabIndex={isActive ? 0 : -1}
                 className={cn(
                   'rounded-[1.25rem] border px-4 py-4 text-left transition',
                   isActive
@@ -84,10 +93,12 @@ export function AdvancedSettingsDeck({
                   </div>
                   <Badge variant={isActive ? 'default' : 'outline'}>{isActive ? '当前焦点' : '切换查看'}</Badge>
                 </div>
-                <p className="mt-3 text-sm leading-7 text-muted-foreground">{section.description}</p>
-                <div className="mt-4 space-y-1.5">
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">{section.description}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
                   {section.summary.map((item) => (
-                    <div key={item} className="text-xs leading-5 text-foreground/84">{item}</div>
+                    <span key={item} className="rounded-full border border-border/70 bg-background/72 px-2.5 py-1 text-xs leading-5 text-foreground/84">
+                      {item}
+                    </span>
                   ))}
                 </div>
               </button>
@@ -98,7 +109,12 @@ export function AdvancedSettingsDeck({
       </CardHeader>
 
       {open ? (
-        <CardContent className="border-t border-border/70 bg-background/24 pt-5">
+        <CardContent
+          id={panelId}
+          role="tabpanel"
+          aria-labelledby={`advanced-settings-tab-${selectedKey}`}
+          className="border-t border-border/70 bg-background/24 pt-5"
+        >
           {selectedKey === 'creative' ? creativePanel : pipelinePanel}
         </CardContent>
       ) : null}

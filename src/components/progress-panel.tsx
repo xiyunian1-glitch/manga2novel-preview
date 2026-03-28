@@ -147,13 +147,13 @@ function formatItemRuntimeLabelLegacy(item: ProgressItem, nowMs: number): string
 function StatusIcon({ status }: { status: ChunkStatus }) {
   switch (status) {
     case 'processing':
-      return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
+      return <Loader2 className="text-status-processing h-4 w-4 animate-spin" />;
     case 'success':
-      return <CheckCircle className="h-4 w-4 text-green-500" />;
+      return <CheckCircle className="text-status-success h-4 w-4" />;
     case 'error':
-      return <XCircle className="h-4 w-4 text-red-500" />;
+      return <XCircle className="text-status-error h-4 w-4" />;
     case 'skipped':
-      return <SkipForward className="h-4 w-4 text-amber-500" />;
+      return <SkipForward className="text-status-skipped h-4 w-4" />;
     default:
       return <Clock className="h-4 w-4 text-muted-foreground" />;
   }
@@ -829,6 +829,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
 
   const currentErrorItem = items.find((item) => item.status === 'error' && item.error);
   const currentErrorAdvice = currentErrorItem?.error ? getTroubleshootingAdvice(currentErrorItem.error) : null;
+  const stagePanelId = `progress-stage-panel-${displayStage}`;
 
   useEffect(() => {
     if (!anchoredItemKey) {
@@ -956,13 +957,13 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-3">
+        <CardContent className="space-y-3">
         {currentErrorItem ? (
-          <div className="rounded-lg border border-red-200 bg-red-50/70 p-2.5 text-sm">
-            <div className="min-w-0 [overflow-wrap:anywhere] font-medium text-red-700">{currentErrorItem.label}</div>
-            <div className="mt-1.5 whitespace-pre-wrap text-red-700 [overflow-wrap:anywhere]">{currentErrorItem.error}</div>
+          <div className="status-surface-danger rounded-lg border p-2.5 text-sm">
+            <div className="min-w-0 [overflow-wrap:anywhere] font-medium">{currentErrorItem.label}</div>
+            <div className="mt-1.5 whitespace-pre-wrap [overflow-wrap:anywhere]">{currentErrorItem.error}</div>
             {currentErrorAdvice ? (
-              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-amber-900">
+              <div className="status-surface-advice mt-2 rounded-lg border p-2.5">
                 <div className="font-medium">{currentErrorAdvice.title}</div>
                 <div className="mt-1 text-sm [overflow-wrap:anywhere]">{currentErrorAdvice.summary}</div>
               </div>
@@ -970,11 +971,16 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           </div>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-2.5 2xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 2xl:grid-cols-4" role="tablist" aria-label="处理阶段">
           {stageCards.map((card) => (
             <button
               key={card.stage}
               type="button"
+              id={`progress-stage-tab-${card.stage}`}
+              role="tab"
+              aria-selected={displayStage === card.stage}
+              aria-controls={`progress-stage-panel-${card.stage}`}
+              tabIndex={displayStage === card.stage ? 0 : -1}
               className={`rounded-[1.15rem] border px-3 py-3 text-left transition ${
                 displayStage === card.stage
                   ? 'border-primary/30 bg-primary/8 shadow-[0_14px_30px_rgba(37,71,184,0.1)]'
@@ -992,7 +998,12 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           ))}
         </div>
 
-        <div className="overflow-hidden rounded-[1.2rem] border border-border/80 bg-background/65">
+        <div
+          id={stagePanelId}
+          role="tabpanel"
+          aria-labelledby={`progress-stage-tab-${displayStage}`}
+          className="overflow-hidden rounded-[1.2rem] border border-border/80 bg-background/65"
+        >
           <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
             <div>
               <div className="font-serif text-[1.02rem] font-semibold">{stageLabel(displayStage)}</div>
@@ -1129,7 +1140,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
                   保存时会校验 JSON，并把修改写回当前阶段；缺失字段会沿用原值。
                 </div>
                 {editError ? (
-                  <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <div className="status-surface-danger rounded-lg border px-3 py-2 text-sm">
                     {editError}
                   </div>
                 ) : null}

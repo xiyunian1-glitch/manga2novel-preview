@@ -26,6 +26,8 @@ export function MobileWorkbenchSwitcher({
   const activeSection = sections.find((section) => section.key === activeKey);
   const compactSections = sections.filter((section) => section.available || section.key !== 'preview').slice(0, 4);
   const previewSection = sections.find((section) => section.key === 'preview' && section.available);
+  const getTabId = (key: MobileWorkbenchSection['key']) => `mobile-workbench-tab-${key}`;
+  const getPanelId = (key: MobileWorkbenchSection['key']) => `mobile-workbench-panel-${key}`;
 
   return (
     <Card className="workbench-panel border-border/75">
@@ -40,7 +42,7 @@ export function MobileWorkbenchSwitcher({
           <Badge variant="outline" className="hidden min-[420px]:inline-flex">按区域切换</Badge>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:hidden">
+        <div className="grid grid-cols-2 gap-2 sm:hidden" role="tablist" aria-label="移动端工作台分区">
           {compactSections.map((section) => {
             const isActive = activeKey === section.key;
 
@@ -48,6 +50,11 @@ export function MobileWorkbenchSwitcher({
               <button
                 key={`compact-${section.key}`}
                 type="button"
+                id={getTabId(section.key)}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={getPanelId(section.key)}
+                tabIndex={isActive ? 0 : -1}
                 className={cn(
                   'rounded-[0.95rem] border px-3 py-2.5 text-left transition',
                   isActive
@@ -71,6 +78,11 @@ export function MobileWorkbenchSwitcher({
           {previewSection ? (
             <button
               type="button"
+              id={getTabId('preview')}
+              role="tab"
+              aria-selected={activeKey === 'preview'}
+              aria-controls={getPanelId('preview')}
+              tabIndex={activeKey === 'preview' ? 0 : -1}
               className={cn(
                 'col-span-2 rounded-[0.95rem] border px-3 py-2.5 text-left transition',
                 activeKey === 'preview'
@@ -85,7 +97,7 @@ export function MobileWorkbenchSwitcher({
           ) : null}
         </div>
 
-        <div className="hidden gap-2 overflow-x-auto pb-1 sm:flex">
+        <div className="hidden gap-2 overflow-x-auto pb-1 sm:flex" role="tablist" aria-label="移动端工作台分区">
           {sections.map((section) => {
             const isActive = activeKey === section.key;
 
@@ -93,6 +105,11 @@ export function MobileWorkbenchSwitcher({
               <button
                 key={section.key}
                 type="button"
+                id={getTabId(section.key)}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={getPanelId(section.key)}
+                tabIndex={isActive ? 0 : -1}
                 className={cn(
                   'min-w-[132px] rounded-[1rem] border px-3 py-3 text-left transition',
                   isActive
