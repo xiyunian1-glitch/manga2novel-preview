@@ -18,11 +18,14 @@ import {
   DEFAULT_COMPATIBLE_BASE_URL,
   DEFAULT_CREATIVE_SETTINGS,
   DEFAULT_FINAL_POLISH,
+  DEFAULT_GEMINI_BASE_URL,
   DEFAULT_ORCHESTRATOR_CONFIG,
   DEFAULT_MEMORY_STATE,
   DEFAULT_STAGE_API_OVERRIDES,
   DEFAULT_STAGE_MODELS,
   DEFAULT_STORY_SYNTHESIS,
+  DEFAULT_WRITING_PREPARATION,
+  GEMINI_ROOT_BASE_URL,
   getEnabledRequestStages,
   LEGACY_OPENROUTER_BASE_URL,
   PROVIDER_DISPLAY_NAMES,
@@ -50,6 +53,7 @@ import {
   CREATIVE_PRESETS,
   CUSTOM_PRESET_ID,
   composeSystemPrompt,
+  DEFAULT_SUPPLEMENTAL_PROMPT,
   resolveCreativePresetId,
   splitSystemPrompt,
   SYSTEM_PROMPT,
@@ -58,7 +62,8 @@ import {
 } from '@/lib/prompts';
 
 let idCounter = 0;
-const CREATIVE_SETTINGS_TEMPLATE_VERSION = 6;
+const CREATIVE_SETTINGS_TEMPLATE_VERSION = 7;
+const ORCHESTRATOR_CONFIG_TEMPLATE_VERSION = 2;
 const API_PROFILES_STORAGE_KEY = 'apiProfiles';
 const ACTIVE_API_PROFILE_ID_STORAGE_KEY = 'activeApiProfileId';
 const DEFAULT_API_PROFILE_NAME = '默认配置';
@@ -86,9 +91,43 @@ function resolvePresetIdFromPresets(systemPrompt: string, presets: CreativePrese
   return matchedPreset?.id || CUSTOM_PRESET_ID;
 }
 
+function migrateOrchestratorConfig(
+  config: OrchestratorConfig | null | undefined,
+  savedVersion: number | null | undefined
+): OrchestratorConfig | null {
+  if (!config) {
+    return null;
+  }
+
+  const mergedConfig: OrchestratorConfig = {
+    ...DEFAULT_ORCHESTRATOR_CONFIG,
+    ...config,
+  };
+
+  if (savedVersion === ORCHESTRATOR_CONFIG_TEMPLATE_VERSION) {
+    return mergedConfig;
+  }
+
+  const nextConfig: OrchestratorConfig = { ...mergedConfig };
+
+  if (config.chunkSize === 1) {
+    nextConfig.chunkSize = DEFAULT_ORCHESTRATOR_CONFIG.chunkSize;
+  }
+
+  if (config.includeSectionImages === false) {
+    nextConfig.includeSectionImages = DEFAULT_ORCHESTRATOR_CONFIG.includeSectionImages;
+  }
+
+  if (config.enableFinalPolish === false) {
+    nextConfig.enableFinalPolish = DEFAULT_ORCHESTRATOR_CONFIG.enableFinalPolish;
+  }
+
+  return nextConfig;
+}
+
 function canResolveModels(
   config: APIConfig,
-  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => Boolean(resolveStageModel(config, stage)));
 }
@@ -110,8 +149,27 @@ function normalizeBaseUrl(
   baseUrl: string | null | undefined,
   legacyProvider?: APIConfig['provider'] | 'openrouter' | null
 ): string {
-  const normalizedBaseUrl = baseUrl?.trim() || '';
+  const normalizedBaseUrl = baseUrl?.trim().replace(/\/+$/, '') || '';
   if (normalizedBaseUrl) {
+    if (provider === 'gemini') {
+      try {
+        const parsedUrl = new URL(normalizedBaseUrl);
+        const normalizedPath = parsedUrl.pathname.replace(/\/+$/, '');
+
+        if (
+          parsedUrl.origin.toLowerCase() === GEMINI_ROOT_BASE_URL
+          && (!normalizedPath || normalizedPath === '/v1beta')
+        ) {
+          return GEMINI_ROOT_BASE_URL;
+        }
+      } catch {
+        const loweredBaseUrl = normalizedBaseUrl.toLowerCase();
+        if (loweredBaseUrl === GEMINI_ROOT_BASE_URL || loweredBaseUrl === DEFAULT_GEMINI_BASE_URL) {
+          return GEMINI_ROOT_BASE_URL;
+        }
+      }
+    }
+
     return normalizedBaseUrl;
   }
 
@@ -192,7 +250,7 @@ function normalizeApiConfig(config: APIConfig): APIConfig {
     providerLabel: normalizeProviderLabel(config),
     apiKey: config.apiKey.trim(),
     model: config.model.trim(),
-    baseUrl: config.baseUrl?.trim() || '',
+    baseUrl: normalizeBaseUrl(config.provider, config.baseUrl),
     stageModels: normalizeStageModels(config.stageModels),
     stageAPIOverrides: normalizeStageAPIOverrides(config.stageAPIOverrides),
   };
@@ -371,7 +429,7 @@ function ensureUniqueProfileName(
 
 function canResolveStageAccess(
   config: APIConfig,
-  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish'>
+  orchestratorConfig?: Pick<OrchestratorConfig, 'enableFinalPolish' | 'workflowMode'>
 ): boolean {
   return getEnabledRequestStages(orchestratorConfig).every((stage) => {
     const stageConfig = resolveStageAPIConfig(config, stage);
@@ -402,11 +460,42 @@ function restoreImagesFromSnapshot(images: RestorableImageItem[]): ImageItem[] {
   }));
 }
 
+function restoreNovelSectionsFromSnapshot(snapshot: PersistedTaskState): TaskState['novelSections'] {
+  if (snapshot.novelSections.length > 0 || snapshot.config.workflowMode !== 'split-draft') {
+    return snapshot.novelSections;
+  }
+
+  const fallbackSections = snapshot.chunkSyntheses.map((chunk) => ({
+    index: chunk.index,
+    title: chunk.title || `第 ${chunk.index + 1} 节`,
+    chunkIndexes: [chunk.index],
+    status: 'pending' as const,
+    runtimeMs: 0,
+    retryCount: 0,
+  }));
+
+  if (snapshot.globalSynthesis.sceneOutline.length === 0) {
+    return fallbackSections;
+  }
+
+  return snapshot.globalSynthesis.sceneOutline.map((scene, index) => ({
+    index,
+    title: scene.title || `第 ${index + 1} 节`,
+    chunkIndexes: scene.chunkIndexes.length > 0
+      ? [...scene.chunkIndexes]
+      : fallbackSections[index]?.chunkIndexes || [index],
+    status: 'pending' as const,
+    runtimeMs: 0,
+    retryCount: 0,
+  }));
+}
+
 function restoreTaskStateFromSnapshot(snapshot: PersistedTaskState, images: ImageItem[]): TaskState {
   const imageById = new Map(images.map((image) => [image.id, image]));
 
   return {
     ...snapshot,
+    novelSections: restoreNovelSectionsFromSnapshot(snapshot),
     chunks: snapshot.chunks.map((chunk) => ({
       ...chunk,
       images: chunk.imageIds
@@ -487,6 +576,7 @@ export function useManga2Novel() {
       sceneOutline: [],
       writingConstraints: [],
     },
+    writingPreparation: { ...DEFAULT_WRITING_PREPARATION },
     novelSections: [],
     finalPolish: { ...DEFAULT_FINAL_POLISH },
     memory: { ...DEFAULT_MEMORY_STATE },
@@ -498,6 +588,8 @@ export function useManga2Novel() {
     },
     currentChunkIndex: -1,
     fullNovel: '',
+    runtimeMs: 0,
+    runtimeStartedAt: undefined,
     lastAIRequest: undefined,
   });
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -507,9 +599,11 @@ export function useManga2Novel() {
   useEffect(() => {
     (async () => {
       const savedOrcConfig = getJSON<OrchestratorConfig>('orchestratorConfig');
+      const savedOrchestratorConfigTemplateVersion = getJSON<number>('orchestratorConfigTemplateVersion');
       const savedCreativeSettings = getJSON<CreativeSettings>('creativeSettings');
       const savedCreativeSettingsTemplateVersion = getJSON<number>('creativeSettingsTemplateVersion');
       const savedCreativePresets = getJSON<CreativePreset[]>('creativePresets');
+      const nextOrchestratorConfig = migrateOrchestratorConfig(savedOrcConfig, savedOrchestratorConfigTemplateVersion);
 
       const nextPresets = [
         ...CREATIVE_PRESETS,
@@ -574,9 +668,12 @@ export function useManga2Novel() {
       setApiProfiles(nextProfiles);
       setActiveApiProfileIdState(nextActiveProfileId);
       setCreativePresets(nextPresets);
-
-      if (savedOrcConfig) {
-        orchestrator.updateConfig(savedOrcConfig);
+      if (nextOrchestratorConfig) {
+        orchestrator.updateConfig(nextOrchestratorConfig);
+        if (savedOrchestratorConfigTemplateVersion !== ORCHESTRATOR_CONFIG_TEMPLATE_VERSION) {
+          setJSON('orchestratorConfigTemplateVersion', ORCHESTRATOR_CONFIG_TEMPLATE_VERSION);
+          setJSON('orchestratorConfig', nextOrchestratorConfig);
+        }
       }
 
       const nextCreativeSettings: CreativeSettings = {
@@ -588,7 +685,11 @@ export function useManga2Novel() {
 
       if (savedCreativeSettingsTemplateVersion !== CREATIVE_SETTINGS_TEMPLATE_VERSION) {
         const { supplementalPrompt, roleAndStyle } = splitSystemPrompt(nextCreativeSettings.systemPrompt);
-        nextCreativeSettings.systemPrompt = composeSystemPrompt(supplementalPrompt, roleAndStyle, SYSTEM_PROMPT_BODY);
+        nextCreativeSettings.systemPrompt = composeSystemPrompt(
+          supplementalPrompt.trim() || DEFAULT_SUPPLEMENTAL_PROMPT,
+          roleAndStyle,
+          SYSTEM_PROMPT_BODY
+        );
         nextCreativeSettings.userPromptTemplate = (nextCreativeSettings.userPromptTemplate.trim() || USER_PROMPT_TEMPLATE)
           .replace(/\n?\{\{safetyInstruction\}\}\n?/g, '\n')
           .replace(/\n{3,}/g, '\n\n')
@@ -604,7 +705,7 @@ export function useManga2Novel() {
 
       setTaskState((prev) => ({
         ...prev,
-        config: savedOrcConfig ? { ...DEFAULT_ORCHESTRATOR_CONFIG, ...savedOrcConfig } : prev.config,
+        config: nextOrchestratorConfig || prev.config,
         creativeSettings: nextCreativeSettings,
       }));
       setConfigLoaded(true);
@@ -843,6 +944,7 @@ export function useManga2Novel() {
     orchestrator.updateConfig(config);
     const current = orchestrator.getState().config;
     setJSON('orchestratorConfig', current);
+    setJSON('orchestratorConfigTemplateVersion', ORCHESTRATOR_CONFIG_TEMPLATE_VERSION);
     setTaskState(orchestrator.getState());
   }, [orchestrator]);
 
@@ -1035,8 +1137,42 @@ const startProcessing = useCallback(async () => {
     return orchestrator.regenerateSectionAndPause(sectionIndex);
   }, [orchestrator]);
 
+  const regenerateWritingPreparation = useCallback(async () => {
+    return orchestrator.regenerateWritingPreparationAndPause();
+  }, [orchestrator]);
+
   const regenerateFinalPolish = useCallback(async () => {
     return orchestrator.regenerateFinalPolishAndPause();
+  }, [orchestrator]);
+
+  const updatePageAnalysis = useCallback((pageIndex: number, value: unknown) => {
+    orchestrator.updatePageAnalysis(pageIndex, value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateChunkSynthesis = useCallback((chunkIndex: number, value: unknown) => {
+    orchestrator.updateChunkSynthesis(chunkIndex, value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateStorySynthesis = useCallback((value: unknown) => {
+    orchestrator.updateStorySynthesis(value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateWritingPreparation = useCallback((value: unknown) => {
+    orchestrator.updateWritingPreparation(value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateNovelSection = useCallback((sectionIndex: number, value: unknown) => {
+    orchestrator.updateNovelSection(sectionIndex, value);
+    setTaskState(orchestrator.getState());
+  }, [orchestrator]);
+
+  const updateFinalPolish = useCallback((value: unknown) => {
+    orchestrator.updateFinalPolish(value);
+    setTaskState(orchestrator.getState());
   }, [orchestrator]);
 
   const updateSceneOutline = useCallback((sceneOutline: ScenePlan[]) => {
@@ -1059,6 +1195,10 @@ const startProcessing = useCallback(async () => {
   }, [orchestrator]);
 
   const reset = useCallback(() => {
+    if (!window.confirm('确认重置当前任务吗？这会保留已上传图片，只清空处理进度和生成结果。')) {
+      return;
+    }
+
     setRecoveryNotice(null);
     orchestrator.reset();
   }, [orchestrator]);
@@ -1111,7 +1251,14 @@ const startProcessing = useCallback(async () => {
     regenerateChunk,
     regenerateStory,
     regenerateSection,
+    regenerateWritingPreparation,
     regenerateFinalPolish,
+    updatePageAnalysis,
+    updateChunkSynthesis,
+    updateStorySynthesis,
+    updateWritingPreparation,
+    updateNovelSection,
+    updateFinalPolish,
     updateSceneOutline,
     confirmSceneOutline,
     confirmSceneOutlineAndResume,

@@ -1,6 +1,8 @@
 import type { AIResponse, APIConfig, ModelOption } from './types';
 import {
+  DEFAULT_GEMINI_BASE_URL,
   DEFAULT_COMPATIBLE_BASE_URL,
+  GEMINI_ROOT_BASE_URL,
   LEGACY_OPENROUTER_BASE_URL,
   PROVIDER_DISPLAY_NAMES,
 } from './types';
@@ -8,6 +10,7 @@ import {
 export interface ImagePayload {
   base64: string;
   mime: string;
+  label?: string;
 }
 
 export interface GenerationOptions {
@@ -16,6 +19,7 @@ export interface GenerationOptions {
   temperature: number;
   maxOutputTokens?: number;
   responseMimeType?: 'application/json' | 'text/plain';
+  userPromptPlacement?: 'before-media' | 'after-media';
 }
 
 export interface LocalProxyStatus {
@@ -36,7 +40,7 @@ type CompatibleChatCompletionResponse = {
   error?: {
     message?: string;
     type?: string;
-    code?: string;
+    code?: string | number | null;
   };
   usage?: {
     prompt_tokens?: number;
@@ -155,15 +159,74 @@ function normalizeBaseUrl(baseUrl: string | undefined, fallback: string): string
   return candidate.replace(/\/+$/, '');
 }
 
+function normalizeGeminiBaseUrl(baseUrl: string | undefined): string {
+  const candidate = normalizeBaseUrl(baseUrl, DEFAULT_GEMINI_BASE_URL);
+
+  try {
+    const parsedUrl = new URL(candidate);
+    const normalizedPath = parsedUrl.pathname.replace(/\/+$/, '');
+
+    if (parsedUrl.origin.toLowerCase() === GEMINI_ROOT_BASE_URL && !normalizedPath) {
+      return DEFAULT_GEMINI_BASE_URL;
+    }
+  } catch {
+    if (candidate.toLowerCase() === GEMINI_ROOT_BASE_URL) {
+      return DEFAULT_GEMINI_BASE_URL;
+    }
+  }
+
+  return candidate;
+}
+
 function getProviderBaseUrl(config: Pick<APIConfig, 'provider' | 'baseUrl'>): string {
   if (config.provider === 'compatible') {
     return normalizeBaseUrl(config.baseUrl, DEFAULT_COMPATIBLE_BASE_URL);
   }
-  return normalizeBaseUrl(config.baseUrl, 'https://generativelanguage.googleapis.com/v1beta');
+  return normalizeGeminiBaseUrl(config.baseUrl);
 }
 
 function getProviderDisplayName(config: Pick<APIConfig, 'provider' | 'providerLabel'>): string {
   return config.providerLabel?.trim() || PROVIDER_DISPLAY_NAMES[config.provider];
+}
+
+function isDeepSeekOfficialCompatibleConfig(config: Pick<APIConfig, 'provider' | 'baseUrl' | 'model' | 'providerLabel'>): boolean {
+  if (config.provider !== 'compatible') {
+    return false;
+  }
+
+  const normalizedBaseUrl = normalizeBaseUrl(config.baseUrl, DEFAULT_COMPATIBLE_BASE_URL).toLowerCase();
+  const providerLabel = String(config.providerLabel || '').trim().toLowerCase();
+  const model = String(config.model || '').trim().toLowerCase();
+
+  return normalizedBaseUrl.includes('api.deepseek.com')
+    || providerLabel === 'deepseek'
+    || model === 'deepseek-chat'
+    || model === 'deepseek-reasoner';
+}
+
+function buildDeepSeekImageUnsupportedError(config: Pick<APIConfig, 'model'>): Error {
+  const modelLabel = config.model.trim() || '当前模型';
+  return new Error(
+    `DeepSeek 官方接口当前不支持图片消息：${modelLabel} 无法接收 image_url。`
+    + ' 请把含图片的阶段改用支持视觉输入的模型'
+    + '（例如 Gemini，或其它支持图片输入的兼容模型），'
+    + ' DeepSeek 可以继续只用于后面的纯文本阶段。'
+  );
+}
+
+function rewriteCompatibleRequestError(config: APIConfig, error: unknown): Error {
+  if (error instanceof Error) {
+    if (
+      isDeepSeekOfficialCompatibleConfig(config)
+      && /unknown variant [`"]image_url[`"]|expected [`"]text[`"]|image_url/i.test(error.message)
+    ) {
+      return buildDeepSeekImageUnsupportedError(config);
+    }
+
+    return error;
+  }
+
+  return new Error(String(error));
 }
 
 function usesOpenRouterHeaders(url: string): boolean {
@@ -201,7 +264,45 @@ function summarizeResponseBody(text: string): string {
   if (!normalized) {
     return 'empty response';
   }
+  if (looksLikeHtml(normalized)) {
+    return 'returned an HTML error page';
+  }
   return normalized.length > 180 ? `${normalized.slice(0, 180)}...` : normalized;
+}
+
+function formatRetryAfterHeaderValue(headerValue: string): string | null {
+  const normalized = headerValue.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^\d+(?:\.\d+)?$/i.test(normalized)) {
+    return `${normalized}s`;
+  }
+
+  const parsedDate = Date.parse(normalized);
+  if (Number.isFinite(parsedDate)) {
+    const retryAfterMs = parsedDate - Date.now();
+    if (retryAfterMs > 0) {
+      return `${Math.max(1, Math.ceil(retryAfterMs / 1000))}s`;
+    }
+  }
+
+  return normalized.length > 40 ? `${normalized.slice(0, 40)}...` : normalized;
+}
+
+function getRetryAfterErrorHint(response: Response): string {
+  const retryAfter = formatRetryAfterHeaderValue(response.headers.get('Retry-After') || '');
+  if (retryAfter) {
+    return ` retry after ${retryAfter}`;
+  }
+
+  const retryAfterMs = response.headers.get('Retry-After-Ms')?.trim() || '';
+  if (/^\d+(?:\.\d+)?$/i.test(retryAfterMs)) {
+    return ` retry after ${retryAfterMs}ms`;
+  }
+
+  return '';
 }
 
 function looksLikeHtml(text: string): boolean {
@@ -218,6 +319,10 @@ function isRemoteBrowserSession(): boolean {
   return typeof window !== 'undefined' && !isLocalBrowserSession();
 }
 
+function canUseLocalProxyInBrowser(): boolean {
+  return typeof window !== 'undefined';
+}
+
 function isLocalBrowserSession(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -228,7 +333,7 @@ function isLocalBrowserSession(): boolean {
 }
 
 function shouldAttemptLocalProxy(url: string): boolean {
-  if (!isLocalBrowserSession()) {
+  if (!canUseLocalProxyInBrowser()) {
     return false;
   }
 
@@ -324,7 +429,7 @@ function extractPortFromProxyEndpoint(proxyEndpoint: string | null): number | nu
 }
 
 export async function detectLocalProxyStatus(): Promise<LocalProxyStatus> {
-  if (!isLocalBrowserSession()) {
+  if (!canUseLocalProxyInBrowser()) {
     return {
       isLocalSession: false,
       available: false,
@@ -382,23 +487,6 @@ async function tryFetchViaLocalProxy(url: string, init: RequestInit): Promise<Re
 }
 
 async function fetchWithDiagnostics(url: string, init: RequestInit, context: string): Promise<Response> {
-  let lastProxyError: Error | null = null;
-
-  if (shouldAttemptLocalProxy(url)) {
-    try {
-      const proxiedResponse = await tryFetchViaLocalProxy(url, init);
-      if (proxiedResponse) {
-        return proxiedResponse;
-      }
-    } catch (proxyError) {
-      if (isAbortError(proxyError)) {
-        throw proxyError;
-      }
-
-      lastProxyError = proxyError instanceof Error ? proxyError : new Error(String(proxyError));
-    }
-  }
-
   try {
     return await fetch(url, init);
   } catch (directError) {
@@ -407,6 +495,21 @@ async function fetchWithDiagnostics(url: string, init: RequestInit, context: str
     }
 
     if (shouldAttemptLocalProxy(url)) {
+      let lastProxyError: Error | null = null;
+
+      try {
+        const proxiedResponse = await tryFetchViaLocalProxy(url, init);
+        if (proxiedResponse) {
+          return proxiedResponse;
+        }
+      } catch (proxyError) {
+        if (isAbortError(proxyError)) {
+          throw proxyError;
+        }
+
+        lastProxyError = proxyError instanceof Error ? proxyError : new Error(String(proxyError));
+      }
+
       throw formatProxyFetchFailure(context, url, directError, lastProxyError);
     }
 
@@ -538,14 +641,80 @@ function isMarkdownFenceOnlyPlaceholder(text: string): boolean {
     || /^```+(?:\s*(?:json|jsonc|javascript|js|typescript|ts)?)?\s*```+\s*$/.test(normalized);
 }
 
+type CompatibleUserContentPart =
+  | {
+      type: 'text';
+      text: string;
+    }
+  | {
+      type: 'image_url';
+      image_url: {
+        url: string;
+      };
+    };
+
+type GeminiUserPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
+
+function buildCompatibleUserContent(
+  images: ImagePayload[],
+  options: GenerationOptions
+): CompatibleUserContentPart[] {
+  const mediaParts = images.flatMap<CompatibleUserContentPart>((image) => {
+    const parts: CompatibleUserContentPart[] = [];
+    const label = String(image.label || '').trim();
+
+    if (label) {
+      parts.push({ type: 'text', text: label });
+    }
+
+    parts.push({
+      type: 'image_url',
+      image_url: { url: `data:${image.mime};base64,${image.base64}` },
+    });
+
+    return parts;
+  });
+
+  const promptPart: CompatibleUserContentPart = {
+    type: 'text',
+    text: options.userPrompt,
+  };
+
+  return options.userPromptPlacement === 'after-media'
+    ? [...mediaParts, promptPart]
+    : [promptPart, ...mediaParts];
+}
+
+function buildGeminiUserParts(
+  images: ImagePayload[],
+  options: GenerationOptions
+): GeminiUserPart[] {
+  const mediaParts = images.flatMap((image): GeminiUserPart[] => {
+    const parts: GeminiUserPart[] = [];
+    const label = String(image.label || '').trim();
+
+    if (label) {
+      parts.push({ text: label });
+    }
+
+    parts.push({
+      inlineData: { mimeType: image.mime, data: image.base64 },
+    });
+
+    return parts;
+  });
+
+  const promptPart = { text: options.userPrompt };
+  return options.userPromptPlacement === 'after-media'
+    ? [...mediaParts, promptPart]
+    : [promptPart, ...mediaParts];
+}
+
 function buildCompatibleChatCompletionRequestBody(
   config: APIConfig,
-  imageContents: Array<{
-    type: 'image_url';
-    image_url: {
-      url: string;
-    };
-  }>,
+  userContent: CompatibleUserContentPart[],
   options: GenerationOptions,
   includeResponseFormat: boolean
 ): string {
@@ -555,10 +724,7 @@ function buildCompatibleChatCompletionRequestBody(
       { role: 'system', content: options.systemPrompt },
       {
         role: 'user',
-        content: [
-          { type: 'text', text: options.userPrompt },
-          ...imageContents,
-        ],
+        content: userContent,
       },
     ],
     temperature: options.temperature,
@@ -573,12 +739,7 @@ function buildCompatibleChatCompletionRequestBody(
 
 async function requestCompatibleChatCompletion(
   config: APIConfig,
-  imageContents: Array<{
-    type: 'image_url';
-    image_url: {
-      url: string;
-    };
-  }>,
+  userContent: CompatibleUserContentPart[],
   options: GenerationOptions,
   signal: AbortSignal | undefined,
   includeResponseFormat: boolean
@@ -589,7 +750,7 @@ async function requestCompatibleChatCompletion(
     method: 'POST',
     headers: getCompatibleHeaders(config.apiKey, url),
     signal,
-    body: buildCompatibleChatCompletionRequestBody(config, imageContents, options, includeResponseFormat),
+    body: buildCompatibleChatCompletionRequestBody(config, userContent, options, includeResponseFormat),
   }, `${providerDisplayName} request failed`);
 
   return parseJsonResponse<CompatibleChatCompletionResponse>(
@@ -607,7 +768,14 @@ async function parseJsonResponse<T>(
   const responseText = await response.text();
 
   if (!response.ok) {
-    throw new Error(`${context} (${response.status}): ${summarizeResponseBody(responseText)}`);
+    if (looksLikeHtml(responseText)) {
+      if (response.status === 524) {
+        throw new Error(`${context} (524): upstream gateway timed out and returned an HTML error page`);
+      }
+      throw new Error(`${context} (${response.status}): returned an HTML error page; check API URL, proxy, or upstream gateway`);
+    }
+    const retryAfterHint = getRetryAfterErrorHint(response);
+    throw new Error(`${context} (${response.status}): ${summarizeResponseBody(responseText)}${retryAfterHint}`);
   }
 
   try {
@@ -914,7 +1082,7 @@ async function fetchGeminiModels(
     throw new Error(`${providerLabel} requires an API key before fetching models.`);
   }
 
-  const url = `${normalizeBaseUrl(baseUrl, 'https://generativelanguage.googleapis.com/v1beta')}/models?key=${apiKey}`;
+  const url = `${normalizeGeminiBaseUrl(baseUrl)}/models?key=${apiKey}`;
   const response = await fetchWithDiagnostics(url, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
@@ -966,23 +1134,30 @@ async function callCompatibleText(
   options: GenerationOptions,
   signal?: AbortSignal
 ): Promise<string> {
+  if (images.length > 0 && isDeepSeekOfficialCompatibleConfig(config)) {
+    throw buildDeepSeekImageUnsupportedError(config);
+  }
+
   const providerDisplayName = getProviderDisplayName(config);
-  const imageContents = images.map((img) => ({
-    type: 'image_url' as const,
-    image_url: { url: `data:${img.mime};base64,${img.base64}` },
-  }));
+  const userContent = buildCompatibleUserContent(images, options);
 
   const requestText = async (includeResponseFormat: boolean): Promise<string> => {
     const data = await requestCompatibleChatCompletion(
       config,
-      imageContents,
+      userContent,
       options,
       signal,
       includeResponseFormat
     );
 
     if (typeof data.error?.message === 'string' && data.error.message.trim()) {
-      const codeSuffix = data.error.code?.trim() ? ` (code=${data.error.code.trim()})` : '';
+      const errorCode = (
+        typeof data.error.code === 'string'
+        || typeof data.error.code === 'number'
+      )
+        ? String(data.error.code).trim()
+        : '';
+      const codeSuffix = errorCode ? ` (code=${errorCode})` : '';
       throw new Error(`${data.error.message.trim()}${codeSuffix}`);
     }
 
@@ -1030,7 +1205,11 @@ async function callCompatibleText(
     return rawText;
   };
 
-  return requestText(options.responseMimeType === 'application/json');
+  try {
+    return await requestText(options.responseMimeType === 'application/json');
+  } catch (error) {
+    throw rewriteCompatibleRequestError(config, error);
+  }
 }
 
 async function callGeminiText(
@@ -1040,9 +1219,7 @@ async function callGeminiText(
   signal?: AbortSignal
 ): Promise<string> {
   const providerDisplayName = getProviderDisplayName(config);
-  const imageParts = images.map((img) => ({
-    inlineData: { mimeType: img.mime, data: img.base64 },
-  }));
+  const userParts = buildGeminiUserParts(images, options);
 
   const generationConfig: Record<string, unknown> = {
     temperature: options.temperature,
@@ -1063,7 +1240,7 @@ async function callGeminiText(
       contents: [
         {
           role: 'user',
-          parts: [{ text: options.userPrompt }, ...imageParts],
+          parts: userParts,
         },
       ],
       generationConfig,
