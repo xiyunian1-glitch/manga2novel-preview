@@ -897,11 +897,11 @@ export function APIConfigPanel({
               key={card.key}
               type="button"
               className={cn(
-                'rounded-[1.2rem] border px-3.5 py-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_18px_40px_var(--panel-shadow)] sm:px-4 sm:py-4',
-                card.tone === 'ready' && 'border-primary/20 bg-primary/6',
-                card.tone === 'pending' && 'status-surface-pending',
-                card.tone === 'active' && 'border-primary/15 bg-background/70',
-                card.tone === 'muted' && 'border-border/70 bg-background/55'
+                'cursor-pointer rounded-[1.2rem] border px-3.5 py-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition hover:-translate-y-1 hover:border-primary/35 hover:shadow-[0_22px_48px_var(--panel-shadow)] focus-visible:ring-2 focus-visible:ring-primary/20 sm:px-4 sm:py-4',
+                card.tone === 'ready' && 'border-primary/28 bg-primary/8 ring-1 ring-primary/10',
+                card.tone === 'pending' && 'status-surface-pending ring-1 ring-primary/10',
+                card.tone === 'active' && 'border-primary/24 bg-background/78 ring-1 ring-primary/10',
+                card.tone === 'muted' && 'border-border/80 bg-background/72 shadow-[0_10px_24px_var(--panel-shadow)]'
               )}
               onClick={() => openEditorAtStep(card.key === 'default' ? 'default' : 'routing')}
               data-action="open-api-config-step"
@@ -976,10 +976,10 @@ export function APIConfigPanel({
                         key={step.id}
                         type="button"
                         className={cn(
-                          'w-full rounded-[1.1rem] border px-3 py-3 text-left transition sm:px-4',
+                          'w-full cursor-pointer rounded-[1.1rem] border px-3 py-3 text-left transition sm:px-4',
                           isActive
-                            ? 'border-primary/25 bg-primary/7 shadow-[0_16px_34px_rgba(37,71,184,0.1)]'
-                            : 'border-border/75 bg-background/55 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-background/72'
+                            ? 'border-primary/38 bg-primary/12 ring-1 ring-primary/16 shadow-[0_20px_42px_var(--panel-shadow-strong)]'
+                            : 'border-border/80 bg-background/74 shadow-[0_8px_18px_var(--panel-shadow)] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_36px_var(--panel-shadow)]'
                         )}
                         onClick={() => setEditorStep(step.id)}
                         data-action="switch-api-editor-step"

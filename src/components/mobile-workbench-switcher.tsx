@@ -56,10 +56,10 @@ export function MobileWorkbenchSwitcher({
                 aria-controls={getPanelId(section.key)}
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
-                  'rounded-[0.95rem] border px-3 py-2.5 text-left transition',
+                  'cursor-pointer rounded-[0.95rem] border px-3 py-2.5 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
                   isActive
-                    ? 'border-primary/25 bg-primary/7 shadow-[0_14px_32px_rgba(37,71,184,0.1)]'
-                    : 'border-border/75 bg-background/72',
+                    ? 'border-primary/38 bg-primary/12 ring-1 ring-primary/16 shadow-[0_18px_38px_var(--panel-shadow-strong)]'
+                    : 'border-border/80 bg-background/78 shadow-[0_10px_20px_var(--panel-shadow)] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_34px_var(--panel-shadow)]',
                   !section.available && 'opacity-45'
                 )}
                 onClick={() => {
@@ -84,10 +84,10 @@ export function MobileWorkbenchSwitcher({
               aria-controls={getPanelId('preview')}
               tabIndex={activeKey === 'preview' ? 0 : -1}
               className={cn(
-                'col-span-2 rounded-[0.95rem] border px-3 py-2.5 text-left transition',
+                'col-span-2 cursor-pointer rounded-[0.95rem] border px-3 py-2.5 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
                 activeKey === 'preview'
-                  ? 'border-primary/25 bg-primary/7 shadow-[0_14px_32px_rgba(37,71,184,0.1)]'
-                  : 'border-border/75 bg-background/72'
+                  ? 'border-primary/38 bg-primary/12 ring-1 ring-primary/16 shadow-[0_18px_38px_var(--panel-shadow-strong)]'
+                  : 'border-border/80 bg-background/78 shadow-[0_10px_20px_var(--panel-shadow)] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_34px_var(--panel-shadow)]'
               )}
               onClick={() => onSelect('preview')}
             >
@@ -111,10 +111,10 @@ export function MobileWorkbenchSwitcher({
                 aria-controls={getPanelId(section.key)}
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
-                  'min-w-[132px] rounded-[1rem] border px-3 py-3 text-left transition',
+                  'min-w-[132px] cursor-pointer rounded-[1rem] border px-3 py-3 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
                   isActive
-                    ? 'border-primary/25 bg-primary/7 shadow-[0_14px_32px_rgba(37,71,184,0.1)]'
-                    : 'border-border/75 bg-background/72',
+                    ? 'border-primary/38 bg-primary/12 ring-1 ring-primary/16 shadow-[0_18px_38px_var(--panel-shadow-strong)]'
+                    : 'border-border/80 bg-background/78 shadow-[0_10px_20px_var(--panel-shadow)] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_34px_var(--panel-shadow)]',
                   !section.available && 'opacity-45'
                 )}
                 onClick={() => {

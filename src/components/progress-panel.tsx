@@ -981,19 +981,24 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
               aria-selected={displayStage === card.stage}
               aria-controls={`progress-stage-panel-${card.stage}`}
               tabIndex={displayStage === card.stage ? 0 : -1}
-              className={`rounded-[1.15rem] border px-3 py-3 text-left transition ${
+              className={`cursor-pointer rounded-[1.15rem] border px-3 py-3 text-left transition ${
                 displayStage === card.stage
-                  ? 'border-primary/30 bg-primary/8 shadow-[0_14px_30px_rgba(37,71,184,0.1)]'
-                  : 'border-border/80 bg-background/72 hover:-translate-y-0.5 hover:bg-muted/30'
+                  ? 'border-primary/45 bg-primary/14 ring-1 ring-primary/18 shadow-[0_24px_48px_var(--panel-shadow-strong)]'
+                  : 'border-border/85 bg-background/82 shadow-[0_10px_24px_var(--panel-shadow)] hover:-translate-y-0.5 hover:border-primary/35 hover:bg-primary/4 hover:shadow-[0_18px_36px_var(--panel-shadow)]'
               }`}
               onClick={() => setSelectedStage(card.stage)}
             >
-              <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.title}</div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.title}</div>
+                <Badge variant={displayStage === card.stage ? 'default' : 'outline'} className="shrink-0">
+                  {displayStage === card.stage ? '当前阶段' : '点击查看'}
+                </Badge>
+              </div>
               <div className="mt-2 font-serif text-[1rem] font-semibold leading-tight sm:text-[1.15rem]">{card.value}</div>
               {card.secondary ? (
                 <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.secondary}</div>
               ) : null}
-              <div className="mt-2 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.hint}</div>
+              <div className="mt-2 text-[11px] leading-5 text-muted-foreground sm:block">{card.hint}</div>
             </button>
           ))}
         </div>
