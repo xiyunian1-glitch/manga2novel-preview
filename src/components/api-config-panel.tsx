@@ -391,6 +391,7 @@ export function APIConfigPanel({
   const [models, setModels] = useState<ModelOption[]>(getDefaultModelsForProvider(config.provider));
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [showDefaultBaseUrlEditor, setShowDefaultBaseUrlEditor] = useState(false);
   const [showQuickRouteKeys, setShowQuickRouteKeys] = useState<Record<QuickRouteId, boolean>>(createShowQuickRouteKeysState);
   const [quickRouteModels, setQuickRouteModels] = useState<Record<QuickRouteId, ModelOption[]>>(
     createQuickRouteModelOptionsState(config.stageAPIOverrides)
@@ -430,6 +431,7 @@ export function APIConfigPanel({
     setModels(getDefaultModelsForProvider(config.provider));
     setModelPickerOpen(false);
     setShowKey(false);
+    setShowDefaultBaseUrlEditor(false);
     setShowQuickRouteKeys(createShowQuickRouteKeysState());
     setQuickRouteModels(createQuickRouteModelOptionsState(config.stageAPIOverrides));
     setQuickRouteModelPickerOpen(createQuickRoutePickerState());
@@ -475,6 +477,13 @@ export function APIConfigPanel({
     () => resolveServicePresetId(provider, baseUrl, providerLabel),
     [baseUrl, provider, providerLabel]
   );
+  const selectedServicePreset = useMemo(
+    () => SERVICE_PRESETS.find((preset) => preset.id === selectedServicePresetId) || SERVICE_PRESETS[SERVICE_PRESETS.length - 1],
+    [selectedServicePresetId]
+  );
+  const shouldShowDefaultBaseUrlInput = selectedServicePreset.id === 'compatible-custom'
+    || normalizeUrl(baseUrl) !== normalizeUrl(selectedServicePreset.baseUrl);
+  const showDefaultBaseUrlInput = showDefaultBaseUrlEditor || shouldShowDefaultBaseUrlInput;
 
   const quickRouteStates = useMemo<Record<QuickRouteId, QuickRouteState>>(() => ({
     analysis: getQuickRouteState(QUICK_ROUTE_GROUPS[0].stages, stageAPIOverrides),
@@ -1086,7 +1095,7 @@ export function APIConfigPanel({
                     </p>
                   </div>
 
-                      <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
                     {SERVICE_PRESETS.map((preset) => {
                       const isActive = selectedServicePresetId === preset.id;
 
@@ -1117,126 +1126,161 @@ export function APIConfigPanel({
                     })}
                   </div>
 
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>API Key</Label>
-                      <div className="relative">
-                        <Input
-                          type={showKey ? 'text' : 'password'}
-                          value={apiKey}
-                          onChange={(event) => setApiKey(event.target.value)}
-                          placeholder={getApiKeyPlaceholder(provider)}
-                          disabled={disabled || profileBusy}
-                          data-field="default-api-key"
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          onClick={() => setShowKey((prev) => !prev)}
-                          aria-label={showKey ? '隐藏默认接口 API Key' : '显示默认接口 API Key'}
-                          title={showKey ? '隐藏默认接口 API Key' : '显示默认接口 API Key'}
-                          data-action="toggle-default-api-key-visibility"
-                        >
-                          {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Label>模型</Label>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
+                  <div className="workbench-panel-soft rounded-[1.25rem] border border-border/75 p-4">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label>API Key</Label>
+                          <button
                             type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2"
-                            onClick={handleFetchModels}
-                            disabled={!canFetchModels}
-                            data-action="fetch-default-models"
+                            className="text-[11px] text-muted-foreground transition hover:text-foreground"
+                            onClick={() => setShowKey((prev) => !prev)}
+                            aria-label={showKey ? '隐藏默认接口 API Key' : '显示默认接口 API Key'}
+                            title={showKey ? '隐藏默认接口 API Key' : '显示默认接口 API Key'}
+                            data-action="toggle-default-api-key-visibility"
                           >
-                            <RefreshCw className={`mr-1 h-3.5 w-3.5 ${fetchingModels ? 'animate-spin' : ''}`} />
-                            获取模型
-                          </Button>
-                          <Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
-                            <PopoverTrigger
-                              render={(
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  role="combobox"
-                                  aria-expanded={modelPickerOpen}
-                                  className="h-7 px-2 font-normal"
-                                  disabled={disabled || profileBusy}
-                                  data-action="open-default-model-picker"
-                                >
-                                  <span className="truncate text-left">
-                                    {selectedModel?.name || '从列表选择'}
-                                  </span>
-                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                </Button>
-                              )}
-                            />
-                            <PopoverContent className="z-[9999] w-[min(32rem,calc(100vw-2rem))] p-0" sideOffset={12} align="end">
-                              <Command shouldFilter>
-                                <CommandInput placeholder="搜索模型或厂商" />
-                                <CommandList className="max-h-96">
-                                  <CommandEmpty>没有匹配的模型</CommandEmpty>
-                                  {groupedModels.map(([vendor, vendorModels], groupIndex) => (
-                                    <div key={vendor}>
-                                      {groupIndex > 0 ? <CommandSeparator /> : null}
-                                      <CommandGroup heading={vendor}>
-                                        {vendorModels.map((item) => (
-                                          <CommandItem
-                                            key={item.id}
-                                            value={`${vendor} ${item.name} ${item.id}`}
-                                            onSelect={() => {
-                                              setModel(item.id);
-                                              setModelPickerOpen(false);
-                                            }}
-                                            className="gap-3"
-                                          >
-                                            <Check className={cn('h-4 w-4', model.trim() === item.id ? 'opacity-100' : 'opacity-0')} />
-                                            <div className="min-w-0 flex-1">
-                                              <div className="truncate" title={item.name}>{item.name}</div>
-                                              <div className="truncate text-xs text-muted-foreground" title={item.id}>{item.id}</div>
-                                            </div>
-                                          </CommandItem>
-                                        ))}
-                                      </CommandGroup>
-                                    </div>
-                                  ))}
-                                </CommandList>
-                              </Command>
-                            </PopoverContent>
-                          </Popover>
+                            {showKey ? '隐藏' : '显示'}
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <Input
+                            type={showKey ? 'text' : 'password'}
+                            value={apiKey}
+                            onChange={(event) => setApiKey(event.target.value)}
+                            placeholder={getApiKeyPlaceholder(provider)}
+                            disabled={disabled || profileBusy}
+                            data-field="default-api-key"
+                          />
                         </div>
                       </div>
 
-                      <Input
-                        value={model}
-                        onChange={(event) => setModel(event.target.value)}
-                        placeholder={getModelPlaceholder(provider)}
-                        disabled={disabled || profileBusy}
-                        data-field="default-model"
-                      />
-                    </div>
-                  </div>
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Label>模型</Label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2"
+                              onClick={handleFetchModels}
+                              disabled={!canFetchModels}
+                              data-action="fetch-default-models"
+                            >
+                              <RefreshCw className={`mr-1 h-3.5 w-3.5 ${fetchingModels ? 'animate-spin' : ''}`} />
+                              获取模型
+                            </Button>
+                            <Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
+                              <PopoverTrigger
+                                render={(
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    role="combobox"
+                                    aria-expanded={modelPickerOpen}
+                                    className="h-7 px-2 font-normal"
+                                    disabled={disabled || profileBusy}
+                                    data-action="open-default-model-picker"
+                                  >
+                                    <span className="truncate text-left">
+                                      {selectedModel?.name || '从列表选择'}
+                                    </span>
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                )}
+                              />
+                              <PopoverContent className="z-[9999] w-[min(32rem,calc(100vw-2rem))] p-0" sideOffset={12} align="end">
+                                <Command shouldFilter>
+                                  <CommandInput placeholder="搜索模型或厂商" />
+                                  <CommandList className="max-h-96">
+                                    <CommandEmpty>没有匹配的模型</CommandEmpty>
+                                    {groupedModels.map(([vendor, vendorModels], groupIndex) => (
+                                      <div key={vendor}>
+                                        {groupIndex > 0 ? <CommandSeparator /> : null}
+                                        <CommandGroup heading={vendor}>
+                                          {vendorModels.map((item) => (
+                                            <CommandItem
+                                              key={item.id}
+                                              value={`${vendor} ${item.name} ${item.id}`}
+                                              onSelect={() => {
+                                                setModel(item.id);
+                                                setModelPickerOpen(false);
+                                              }}
+                                              className="gap-3"
+                                            >
+                                              <Check className={cn('h-4 w-4', model.trim() === item.id ? 'opacity-100' : 'opacity-0')} />
+                                              <div className="min-w-0 flex-1">
+                                                <div className="truncate" title={item.name}>{item.name}</div>
+                                                <div className="truncate text-xs text-muted-foreground" title={item.id}>{item.id}</div>
+                                              </div>
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </div>
+                                    ))}
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                        </div>
 
-                  <div className="space-y-2">
-                    <Label>API URL / 代理地址</Label>
-                    <Input
-                      value={baseUrl}
-                      onChange={(event) => setBaseUrl(event.target.value)}
-                      placeholder={getBaseUrlPlaceholder(provider)}
-                      disabled={disabled || profileBusy}
-                      data-field="default-base-url"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {selectedServicePresetId === 'compatible-custom'
-                        ? '自定义兼容接口请填完整前缀，例如 https://your-gateway.example/v1。'
-                        : '预设已经帮你带出默认地址；只有你要换成自己的网关、代理或中转时才需要改。'}
-                    </p>
+                        <Input
+                          value={model}
+                          onChange={(event) => setModel(event.target.value)}
+                          placeholder={getModelPlaceholder(provider)}
+                          disabled={disabled || profileBusy}
+                          data-field="default-model"
+                        />
+                      </div>
+                    </div>
+
+                    {showDefaultBaseUrlInput ? (
+                      <div className="space-y-2 border-t border-border/70 pt-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label>API URL / 代理地址</Label>
+                          {selectedServicePreset.id !== 'compatible-custom' ? (
+                            <button
+                              type="button"
+                              className="text-[11px] text-muted-foreground transition hover:text-foreground"
+                              onClick={() => {
+                                setBaseUrl(selectedServicePreset.baseUrl);
+                                setShowDefaultBaseUrlEditor(false);
+                              }}
+                            >
+                              恢复预设地址
+                            </button>
+                          ) : null}
+                        </div>
+                        <Input
+                          value={baseUrl}
+                          onChange={(event) => setBaseUrl(event.target.value)}
+                          placeholder={getBaseUrlPlaceholder(provider)}
+                          disabled={disabled || profileBusy}
+                          data-field="default-base-url"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {selectedServicePreset.id === 'compatible-custom'
+                            ? '自定义兼容接口请填完整前缀，例如 https://your-gateway.example/v1。'
+                            : '只有你要改成自己的网关、代理或中转时，才需要修改这里。'}
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2 border-t border-border/70 pt-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          当前使用预设地址：{selectedServicePreset.baseUrl || '未设置'}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => setShowDefaultBaseUrlEditor(true)}
+                        >
+                          修改地址
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
                 ) : null}
