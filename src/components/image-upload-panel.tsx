@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -384,9 +385,12 @@ export function ImageUploadPanel({
                     onClick={() => setPreviewImageId(img.id)}
                   >
                     <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20">
-                      <img
+                      <Image
                         src={img.previewUrl}
                         alt={`第${index + 1}页`}
+                        width={160}
+                        height={224}
+                        unoptimized
                         className="h-20 w-full object-cover transition group-hover:scale-[1.02]"
                         draggable={false}
                       />
@@ -425,9 +429,12 @@ export function ImageUploadPanel({
                         title="点击查看大图"
                         draggable={false}
                       >
-                        <img
+                        <Image
                           src={img.previewUrl}
                           alt={`第${index + 1}页`}
+                          width={96}
+                          height={128}
+                          unoptimized
                           className="h-16 w-12 object-cover"
                           draggable={false}
                         />
@@ -496,9 +503,12 @@ export function ImageUploadPanel({
                     : ''}
                 </div>
                 <div className="overflow-hidden rounded-lg border bg-muted/20">
-                  <img
+                  <Image
                     src={previewImage.previewUrl}
                     alt={getFilePath(previewImage.file)}
+                    width={1600}
+                    height={2200}
+                    unoptimized
                     className="max-h-[75vh] w-full object-contain"
                   />
                 </div>
