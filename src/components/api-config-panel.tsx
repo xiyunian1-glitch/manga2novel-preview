@@ -897,11 +897,11 @@ export function APIConfigPanel({
               key={card.key}
               type="button"
               className={cn(
-                'cursor-pointer rounded-[1.2rem] border px-3.5 py-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] transition hover:-translate-y-1 hover:border-primary/35 hover:shadow-[0_22px_48px_var(--panel-shadow)] focus-visible:ring-2 focus-visible:ring-primary/20 sm:px-4 sm:py-4',
-                card.tone === 'ready' && 'border-primary/28 bg-primary/8 ring-1 ring-primary/10',
-                card.tone === 'pending' && 'status-surface-pending ring-1 ring-primary/10',
-                card.tone === 'active' && 'border-primary/24 bg-background/78 ring-1 ring-primary/10',
-                card.tone === 'muted' && 'border-border/80 bg-background/72 shadow-[0_10px_24px_var(--panel-shadow)]'
+                'surface-interactive-card cursor-pointer rounded-[1.2rem] px-3.5 py-3.5 text-left transition hover:-translate-y-1 hover:border-primary/35 hover:shadow-[0_22px_48px_var(--panel-shadow)] focus-visible:ring-2 focus-visible:ring-primary/20 sm:px-4 sm:py-4',
+                card.tone === 'ready' && 'surface-interactive-card-active border-primary/28 bg-primary/8',
+                card.tone === 'pending' && 'surface-interactive-card-active status-surface-pending',
+                card.tone === 'active' && 'surface-interactive-card-active border-primary/24 bg-background/78',
+                card.tone === 'muted' && 'border-border/80'
               )}
               onClick={() => openEditorAtStep(card.key === 'default' ? 'default' : 'routing')}
               data-action="open-api-config-step"
@@ -927,7 +927,7 @@ export function APIConfigPanel({
           ))}
         </div>
 
-        <div className="rounded-xl border bg-muted/10 p-3.5">
+        <div className="surface-static-card rounded-xl p-3.5">
           <div className="grid gap-3 xl:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] xl:items-center">
             <div className="space-y-2">
               <Label>当前配置档</Label>
@@ -976,10 +976,10 @@ export function APIConfigPanel({
                         key={step.id}
                         type="button"
                         className={cn(
-                          'w-full cursor-pointer rounded-[1.1rem] border px-3 py-3 text-left transition sm:px-4',
+                          'surface-interactive-card w-full cursor-pointer rounded-[1.1rem] px-3 py-3 text-left transition sm:px-4',
                           isActive
-                            ? 'border-primary/38 bg-primary/12 ring-1 ring-primary/16 shadow-[0_20px_42px_var(--panel-shadow-strong)]'
-                            : 'border-border/80 bg-background/74 shadow-[0_8px_18px_var(--panel-shadow)] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_36px_var(--panel-shadow)]'
+                            ? 'surface-interactive-card-active border-primary/38 bg-primary/12'
+                            : 'border-border/80 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_36px_var(--panel-shadow)]'
                         )}
                         onClick={() => setEditorStep(step.id)}
                         data-action="switch-api-editor-step"
@@ -1001,7 +1001,7 @@ export function APIConfigPanel({
 
               <div className="max-h-[78vh] overflow-y-auto pr-1">
                 <div className="space-y-4">
-                  <div className="rounded-[1rem] border border-border/70 bg-background/62 px-3 py-3 lg:hidden">
+                  <div className="surface-static-card rounded-[1rem] px-3 py-3 lg:hidden">
                     <div className="text-[11px] tracking-[0.12em] text-muted-foreground">当前步骤</div>
                     <div className="mt-1 font-medium text-foreground">{currentEditorStep.order} · {currentEditorStep.label}</div>
                     <div className="mt-1 text-xs leading-5 text-muted-foreground">{currentEditorStep.description}</div>

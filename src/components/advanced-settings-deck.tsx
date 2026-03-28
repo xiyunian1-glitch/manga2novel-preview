@@ -79,10 +79,10 @@ export function AdvancedSettingsDeck({
                 aria-controls={panelId}
                 tabIndex={isActive ? 0 : -1}
                 className={cn(
-                  'cursor-pointer rounded-[1.25rem] border px-4 py-4 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
+                  'surface-interactive-card cursor-pointer rounded-[1.25rem] px-4 py-4 text-left transition focus-visible:ring-2 focus-visible:ring-primary/20',
                   isActive
-                    ? 'border-primary/38 bg-primary/12 ring-1 ring-primary/16 shadow-[0_22px_46px_var(--panel-shadow-strong)]'
-                    : 'border-border/80 workbench-panel-soft shadow-[0_10px_22px_var(--panel-shadow)] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_38px_var(--panel-shadow)]'
+                    ? 'surface-interactive-card-active border-primary/38 bg-primary/12'
+                    : 'border-border/80 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/4 hover:shadow-[0_18px_38px_var(--panel-shadow)]'
                 )}
                 onClick={() => onFocusChange(section.key)}
               >

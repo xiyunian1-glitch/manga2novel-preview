@@ -948,7 +948,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
         </div>
         <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
           {overviewCards.map((card) => (
-            <div key={card.label} className="workbench-panel-soft rounded-[1.1rem] border border-border/70 px-3 py-3">
+            <div key={card.label} className="surface-static-card rounded-[1.1rem] px-3 py-3">
               <div className="text-[11px] tracking-[0.12em] text-muted-foreground">{card.label}</div>
               <div className="mt-2 font-serif text-[1rem] font-semibold leading-tight text-foreground sm:text-[1.15rem]">{card.value}</div>
               <div className="mt-1 hidden text-[11px] leading-5 text-muted-foreground sm:block">{card.hint}</div>
@@ -981,10 +981,10 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
               aria-selected={displayStage === card.stage}
               aria-controls={`progress-stage-panel-${card.stage}`}
               tabIndex={displayStage === card.stage ? 0 : -1}
-              className={`cursor-pointer rounded-[1.15rem] border px-3 py-3 text-left transition ${
+              className={`surface-interactive-card cursor-pointer rounded-[1.15rem] px-3 py-3 text-left transition ${
                 displayStage === card.stage
-                  ? 'border-primary/45 bg-primary/14 ring-1 ring-primary/18 shadow-[0_24px_48px_var(--panel-shadow-strong)]'
-                  : 'border-border/85 bg-background/82 shadow-[0_10px_24px_var(--panel-shadow)] hover:-translate-y-0.5 hover:border-primary/35 hover:bg-primary/4 hover:shadow-[0_18px_36px_var(--panel-shadow)]'
+                  ? 'surface-interactive-card-active border-primary/45 bg-primary/14'
+                  : 'border-border/85 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-primary/4 hover:shadow-[0_18px_36px_var(--panel-shadow)]'
               }`}
               onClick={() => setSelectedStage(card.stage)}
             >
@@ -1007,7 +1007,7 @@ export function ProgressPanel({ taskState, onRegenerateItem, onUpdateItem }: Pro
           id={stagePanelId}
           role="tabpanel"
           aria-labelledby={`progress-stage-tab-${displayStage}`}
-          className="overflow-hidden rounded-[1.2rem] border border-border/80 bg-background/65"
+          className="surface-static-card overflow-hidden rounded-[1.2rem]"
         >
           <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
             <div>
