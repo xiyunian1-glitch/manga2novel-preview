@@ -1,8 +1,17 @@
+function resolvePagesBasePath() {
+  const repository = process.env.GITHUB_REPOSITORY?.split('/')[1]?.trim();
+  const override = process.env.GITHUB_PAGES_REPO?.trim();
+  const repoName = override || repository || 'manga2novel-preview';
+  return `/${repoName}`;
+}
+
+const basePath = resolvePagesBasePath();
+
 const nextConfig = {
   output: 'export',
   trailingSlash: true,
-  basePath: '/manga2novel-preview',
-  assetPrefix: '/manga2novel-preview',
+  basePath,
+  assetPrefix: basePath,
   images: {
     unoptimized: true,
   },
